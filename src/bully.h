@@ -1,7 +1,8 @@
 /*
     bully - retrieve WPA/WPA2 passphrase from a WPS-enabled AP
 
-	Copyright (C) 2017  wiire         <wi7ire@gmail.com>
+    Copyright (C) 2020  kimocoder     <christian@aircrack-ng.org>
+    Copyright (C) 2017  wiire         <wi7ire@gmail.com>
     Copyright (C) 2012  Brian Purcell <purcell.briand@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
@@ -17,6 +18,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+
 #ifndef _BULLY_H
 #define _BULLY_H
 
@@ -24,7 +26,7 @@
 
 typedef struct pcap_pkthdr	phdr_t;
 typedef struct wps_config	wpsc_t;
-typedef struct wps_data		wpsd_t;  
+typedef struct wps_data		wpsd_t;
 typedef struct wps_registrar_config wpsr_t;
 typedef struct wps_context	wctx_t;
 typedef struct wpabuf		wpab_t;
@@ -193,6 +195,8 @@ struct global {
 	wpsd_t	*wdata;
 	int16	*pin1;
 	int16	*pin2;
+	char    pixie;
+
 };
 
 
@@ -206,6 +210,11 @@ struct global {
 
 
 char usage[] =
+
+"\n"
+"  bully v1.3\n"
+"  the fork that actually works!\n"
+"  maintained by kimocoder - https://twitter.com/kimocoder\n"
 "\n"
 "  usage: %s <options> interface\n"
 "\n"
@@ -225,7 +234,7 @@ char usage[] =
 "      -o, --outfile file     : Output file for messages          [stdout]\n"
 "      -p, --pin N            : Starting pin number (7 or 8 digits) [Auto]\n"
 "      -s, --source macaddr   : Source (hardware) MAC address      [Probe]\n"
-"      -v, --verbosity N      : Verbosity level 1-3, 1 is quietest     [3]\n"
+"      -v, --verbosity N      : Verbosity level 1-4, 1 is quietest     [4]\n"
 "      -w, --workdir path     : Location of pin/session files  [~/.bully/]\n"
 "      -5, --5ghz             : Hop on 5GHz a/n default channel list  [No]\n"
 "      -B, --bruteforce       : Bruteforce the WPS pin checksum digit [No]\n"
@@ -235,6 +244,8 @@ char usage[] =
 "\n"
 "  Advanced arguments:\n"
 "\n"
+"      -d, --pixiewps         : Attempt to use pixiewps               [No]\n"
+"      -g, --genpin N         : Pin Generator [1] D-Link [2] Belkin    [0]\n"
 "      -a, --acktime N        : Deprecated/ignored                  [Auto]\n"
 "      -r, --retries N        : Resend packets N times when not acked  [2]\n"
 "      -m, --m13time N        : Deprecated/ignored                  [Auto]\n"

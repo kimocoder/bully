@@ -1,7 +1,8 @@
 /*
     bully - retrieve WPA/WPA2 passphrase from a WPS-enabled AP
 
-	Copyright (C) 2017  wiire         <wi7ire@gmail.com>
+    Copyright (C) 2020  kimocoder     <christian@aircrack-ng.org>
+    Copyright (C) 2017  wiire         <wi7ire@gmail.com>
     Copyright (C) 2012  Brian Purcell <purcell.briand@gmail.com>
 
     This program is free software: you can redistribute it and/or modify

@@ -87,6 +87,8 @@ Optional arguments:
   -S, --sequential       : Sequential pins (do not randomize)    [No]
   -T, --test             : Test mode (do not inject any packets) [No]
 Advanced arguments:
+  -d, --pixiewps         : Attempt to use pixiewps               [No]
+  -g, --genpin N         : Pin Generator [1] D-Link [2] Belkin    [0]
   -a, --acktime N        : Deprecated/ignored                  [Auto]
   -r, --retries N        : Resend packets N times when not acked  [2]
   -m, --m13time N        : Deprecated/ignored                  [Auto]
@@ -193,6 +195,17 @@ Advanced arguments:
 		access point is visible and has WPS enabled, generate a randomized pin file, or create a
 		session file for the access point.
 
+      -d, --pixiewps
+      
+                The -d option performs an offline attack, Pixie Dust (pixiewps),
+		by automatically passing the PKE, PKR, E-Hash1, E-Hash2, E-Nonce and Authkey.
+		pixiewps will then try to attack Ralink, Broadcom and Realtek chipsets.
+
+      -g, --genpin N
+      
+                This is a pin generator for either [1] D-Link or [2] Belkin
+		routers which uses a known vulnerability names "pingen attack".
+
       -a, --acktime N
 
 		Deprecated. Packet timings are throttled automatically. Will be removed in future revision.
@@ -287,4 +300,5 @@ Advanced arguments:
       -h, --help
 
 		Display onscreen help.
+
 
