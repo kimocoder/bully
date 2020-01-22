@@ -1,6 +1,7 @@
 /*
     bully - retrieve WPA/WPA2 passphrase from a WPS-enabled AP
 
+	Copyright (C) 2017  wiire         <wi7ire@gmail.com>
     Copyright (C) 2012  Brian Purcell <purcell.briand@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
@@ -169,6 +170,7 @@ struct global {
 	int	delay;
 	int	k1delay, k1step, k1count;
 	int	k2delay, k2step, k2count;
+	int	wpsinfo;
 	int	lwait;
 	int	detect;
 	int	dcount;
@@ -247,6 +249,7 @@ char usage[] =
 "      -M, --m57nack          : M5/M7 timeouts treated as WSC_NACK's  [No]\n"
 "      -N, --nofcs            : Packets don't contain the FCS field [Auto]\n"
 "      -P, --probe            : Use probe request for nonbeaconing AP [No]\n"
+"      -Q, --wpsinfo          : Use probe request to gather WPS info  [No]\n"
 "      -R, --radiotap         : Assume radiotap headers are present [Auto]\n"
 "      -W, --windows7         : Masquerade as a Windows 7 registrar   [No]\n"
 "      -Z, --suppress         : Suppress packet throttling algorithm  [No]\n"

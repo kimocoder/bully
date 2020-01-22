@@ -208,6 +208,7 @@ int main(int argc, char *argv[])
 			{"m57nack",	0,	0,	'M'},
 			{"nofcs",	0,	0,	'N'},
 			{"probe",	0,	0,	'P'},
+			{"wpsinfo",		0,	0,	'Q'},
 			{"radiotap",	0,	0,	'R'},
 			{"sequential",	0,	0,	'S'},
 			{"test",	0,	0,	'T'},
@@ -218,7 +219,7 @@ int main(int argc, char *argv[])
 			{0,		0,	0,	 0 }
 		};
 
-		int option = getopt_long( argc, argv, "a:b:c:e:i:l:m:o:p:r:s:t:v:w:1:2:5ABCDEFLMNPRSTVWZh",
+		int option = getopt_long( argc, argv, "a:b:c:e:i:l:m:o:p:r:s:t:v:w:1:2:5ABCDEFLMNPQRSTVWZh",
 					long_options, &option_index );
 
 		if( option < 0 ) break;
@@ -366,6 +367,9 @@ int main(int argc, char *argv[])
 				break;
 			case 'P' :
 				G->probe = 1;
+				break;
+			case 'Q' :
+				G->wpsinfo = 1;
 				break;
 			case 'R' :
 				G->has_rth = 1;
@@ -633,6 +637,117 @@ int main(int argc, char *argv[])
 	vt = find_vtag(vtag, vlen, TAG_WPS_APLOCK, 1);
 	if (vt && vt->data[0] == TAG_WPS_LOCKED) {
 		vprint("[!] Beacon information element indicates WPS is locked\n");
+	};
+
+	if (G->wpsinfo) { /* Build directed probe request to gather more WPS info */
+		mac = (mac_t*)(&prober[RTH_SIZE]);
+		memcpy(mac->adr2.addr, G->hwmac, 6);
+		tags[0] = (tag_t*)(essidt);
+		tags[0]->len = strlen(G->essid);
+		memcpy(tags[0]->data, G->essid, tags[0]->len);
+		int tmpl;  uint8 *tmp = build_ietags(tags, &tmpl);
+		G->dprobe = build_packet(prober, sizeof(prober) - 1, tmp, tmpl);
+		G->reql = sizeof(prober) - 1 + tmpl;
+		free(tmp);
+
+		vprint("[+] Sending probe request to '%s' (%s)\n", G->essid, G->ssids);
+
+		while (1) {
+
+ap_probe:
+			result = send_packet(G, G->dprobe, G->reql, 1);
+			result = next_packet(G, MAC_TYPE_MGMT, MAC_ST_PROBE_RESP,
+							G->hwmac, G->bssid, PKT_PR, TRUE);
+
+			if (result == SUCCESS) { /* G->has_fcs is already set to 0 if needed */
+				tag = (tag_t*)(G->inp[F_PAY].data + BFP_SIZE);
+				tlen = G->inp[F_PAY].size - BFP_SIZE;
+
+				if (strlen(G->essid) != tag->len)
+					goto ap_probe;
+				else
+					break;
+			};
+
+			if (result == TIMEOUT) {
+				vprint("[!] Unable to get probe response from the AP\n");
+				break;
+			};
+		};
+
+		if (result == SUCCESS) {
+			vprint("[+] Got probe response from '%s' (%s)\n", G->essid, G->ssids);
+
+			if (tag = find_tag(tag, tlen, TAG_VEND, 0, MS_WPS_ID, 4)) {
+				vtag = (vtag_t*)&tag->data[4];
+				vlen = tag->len - 4;
+				vtag_t* init_vtag = vtag; /* Assuming WPS tags are not ordered */
+				int tsiz = 0;
+				char dn[32];
+
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_UUID_E, 16)) {
+					vprint("[*] UUID Enrollee '%s'\n", hex(vtag->data, 16));
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_D_NAME, 0)) {
+					tsiz = be16toh(vtag->len);
+					memcpy(dn, vtag->data, tsiz);
+					dn[tsiz] = '\0';
+					vprint("[*] Device name '%s'\n", dn);
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_D_TYPE, 8)) {
+					char dtype[50];
+					uint16_t cat  = be16toh(*((uint16_t*)(&vtag->data[0])));
+					uint16_t scat = be16toh(*((uint16_t*)(&vtag->data[6])));
+					build_dev_type_string(cat, scat, dtype, 50);
+					vprint("[*] Device type '%s'\n", dtype);
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_MANU, 0)) {
+					tsiz = be16toh(vtag->len);
+					memcpy(dn, vtag->data, tsiz);
+					dn[tsiz] = '\0';
+					vprint("[*] Manufacturer '%s'\n", dn);
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_M_NAME, 0)) {
+					tsiz = be16toh(vtag->len);
+					memcpy(dn, vtag->data, tsiz);
+					dn[tsiz] = '\0';
+					vprint("[*] Model name '%s'\n", dn);
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_M_NUM, 0)) {
+					tsiz = be16toh(vtag->len);
+					memcpy(dn, vtag->data, tsiz);
+					dn[tsiz] = '\0';
+					vprint("[*] Model number '%s'\n", dn);
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_SERIAL, 0)) {
+					tsiz = be16toh(vtag->len);
+					memcpy(dn, vtag->data, tsiz);
+					dn[tsiz] = '\0';
+					vprint("[*] Serial number '%s'\n", dn);
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_CONF_M, 2)) {
+					char methods[60];
+					uint16_t m = be16toh(*((uint16_t*)(&vtag->data[0])));
+					build_conf_methods_string(m, methods, 60);
+					vprint("[*] Methods '%s'\n", methods);
+				};
+				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_BANDS, 1)) {
+					char bands[18];
+					bands[0] = '\0';
+					int poff = 0;
+					if (vtag->data[0] & 1) {
+						strncpy(bands, "'2.4GHz'", 8 + 1);
+						poff = 8;
+					};
+					if (vtag->data[0] & 2) {
+						if (poff)
+							bands[poff++] = ' ';
+						strncpy(bands + poff, "'5.0Ghz'", 8 + 1);
+					}
+					vprint("[*] RF bands %s\n", bands);
+				};
+			};
+		};
 	};
 
 	int msgl;  uint8 *msg = build_ietags(tags, &msgl);

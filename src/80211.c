@@ -1,6 +1,7 @@
 /*
     bully - retrieve WPA/WPA2 passphrase from a WPS-enabled AP
 
+	Copyright (C) 2017  wiire         <wi7ire@gmail.com>
     Copyright (C) 2012  Brian Purcell <purcell.briand@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
@@ -144,6 +145,203 @@ vtag_t *find_vtag(void *vtagp, int vtagl, uint8* vid, int vlen)
 	if (vtagl)
 		vprint("[!] Information element tag(s) extend past end of frame\n");
 	return NULL;
+};
+
+
+void build_dev_type_string(const uint16 cat, const uint16 scat, char *sbuf, const int blen)
+{
+	sbuf[0] = '\0';
+	switch (cat) {
+		case 1  :
+			strcpy(sbuf, "Computer");
+			sbuf += 8;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", PC");						break;
+				case 2 : strcat(sbuf, ", Server");					break;
+				case 3 : strcat(sbuf, ", Media center");			break;
+				case 4 : strcat(sbuf, ", Ultra-mobile PC");			break;
+				case 5 : strcat(sbuf, ", Notebook");				break;
+				case 6 : strcat(sbuf, ", Desktop");					break;
+				case 7 : strcat(sbuf, ", Mobile Internet Device");	break;
+				case 8 : strcat(sbuf, ", Netbook");					break;
+				case 9 : strcat(sbuf, ", Tablet");					break;
+				default: break;
+			};
+			break;
+		case 2  :
+			strcpy(sbuf, "Input Device");
+			sbuf += 12;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", Keyboard");			break;
+				case 2 : strcat(sbuf, ", Mouse");				break;
+				case 3 : strcat(sbuf, ", Joystick");			break;
+				case 4 : strcat(sbuf, ", Trackball");			break;
+				case 5 : strcat(sbuf, ", Gaming controller");	break;
+				case 6 : strcat(sbuf, ", Remote");				break;
+				case 7 : strcat(sbuf, ", Touchscreen");			break;
+				case 8 : strcat(sbuf, ", Biometric reader");	break;
+				case 9 : strcat(sbuf, ", Barcode reader");		break;
+				default: break;
+			};
+			break;
+		case 3  :
+			strcpy(sbuf, "Printer/Scanner");
+			sbuf += 15;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", Printer");		break;
+				case 2 : strcat(sbuf, ", Scanner");		break;
+				case 3 : strcat(sbuf, ", Fax");			break;
+				case 4 : strcat(sbuf, ", Copier");		break;
+				case 5 : strcat(sbuf, ", All-in-one");	break;
+				default: break;
+			};
+			break;
+		case 4  :
+			strcpy(sbuf, "Camera");
+			sbuf += 6;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", Printer");		break;
+				case 2 : strcat(sbuf, ", Scanner");		break;
+				case 3 : strcat(sbuf, ", Fax");			break;
+				case 4 : strcat(sbuf, ", Copier");		break;
+				case 5 : strcat(sbuf, ", All-in-one");	break;
+				default: break;
+			};
+			break;
+		case 5  :
+			strcpy(sbuf, "Storage");
+			sbuf += 7;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", NAS");	break;
+				default: break;
+			};
+			break;
+		case 6  :
+			strcpy(sbuf, "Network Infrastructure");
+			sbuf += 22;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", AP");		break;
+				case 2 : strcat(sbuf, ", Router");	break;
+				case 3 : strcat(sbuf, ", Switch");	break;
+				case 4 : strcat(sbuf, ", Gateway");	break;
+				default: break;
+			};
+			break;
+		case 7  :
+			strcpy(sbuf, "Display");
+			sbuf += 7;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", Television");					break;
+				case 2 : strcat(sbuf, ", Electronic Picture Frame");	break;
+				case 3 : strcat(sbuf, ", Projector");					break;
+				case 4 : strcat(sbuf, ", Monitor");						break;
+				default: break;
+			};
+			break;
+		case 8  :
+			strcpy(sbuf, "Multimedia Device");
+			sbuf += 17;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", DAR");								break;
+				case 2 : strcat(sbuf, ", PVR");								break;
+				case 3 : strcat(sbuf, ", MCX");								break;
+				case 4 : strcat(sbuf, ", Set-top box");						break;
+				case 5 : strcat(sbuf, ", Media server/adapter/extender");	break;
+				default: break;
+			};
+			break;
+		case 9  :
+			strcpy(sbuf, "Gaming Device");
+			sbuf += 13;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", Xbox");					break;
+				case 2 : strcat(sbuf, ", Xbox360");					break;
+				case 3 : strcat(sbuf, ", Playstation");				break;
+				case 4 : strcat(sbuf, ", Game console/adapter");	break;
+				case 5 : strcat(sbuf, ", Portable gaming device");	break;
+				default: break;
+			};
+			break;
+		case 10  :
+			strcpy(sbuf, "Telephone");
+			sbuf += 9;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", Windows Mobile");				break;
+				case 2 : strcat(sbuf, ", Phone - single mode");			break;
+				case 3 : strcat(sbuf, ", Phone - dual mode");			break;
+				case 4 : strcat(sbuf, ", Smartphone - single mode");	break;
+				case 5 : strcat(sbuf, ", Smartphone - dual mode");		break;
+				default: break;
+			};
+			break;
+		case 11 :
+			strcpy(sbuf, "Audio Device");
+			sbuf += 12;
+			switch (scat) {
+				case 1 : strcat(sbuf, ", Audio tuner/receiver");	break;
+				case 2 : strcat(sbuf, ", Speakers");				break;
+				case 3 : strcat(sbuf, ", Portable Music Player");	break;
+				case 4 : strcat(sbuf, ", Headset");					break;
+				case 5 : strcat(sbuf, ", Headphones");				break;
+				case 6 : strcat(sbuf, ", Microphone");				break;
+				case 7 : strcat(sbuf, ", Home Threater Systems");	break;
+				default: break;
+			};
+			break;
+		default:
+			break;
+	};
+};
+
+
+void build_conf_methods_string(const uint16 method, char *sbuf, const int blen)
+{
+	int offset = 0;
+	sbuf[0] = '\0';
+	if (method & WPS_CONF_LABEL) {
+		strcpy(sbuf, "Label");
+		offset = 5;
+	};
+	if (method & WPS_CONF_DISPLAY) {
+		if (offset) {
+			strcat(sbuf + offset, ", ");
+			offset += 2;
+		};
+		strcat(sbuf + offset, "Display");
+		offset += 7;
+	};
+	if (method & WPS_CONF_PUSH_BTN) {
+		if (offset) {
+			strcat(sbuf + offset, ", ");
+			offset += 2;
+		};
+		strcat(sbuf + offset, "Push Button");
+		offset += 11;
+	};
+	if (method & WPS_CONF_KEYPAD) {
+		if (offset) {
+			strcat(sbuf + offset, ", ");
+			offset += 2;
+		};
+		strcat(sbuf + offset, "Keypad");
+		offset += 6;
+	};
+	if (method & WPS_CONF_ETHERNET) {
+		if (offset) {
+			strcat(sbuf + offset, ", ");
+			offset += 2;
+		};
+		strcat(sbuf + offset, "Ethernet");
+		offset += 8;
+	};
+	if (method & WPS_CONF_USB) {
+		if (offset) {
+			strcat(sbuf + offset, ", ");
+			offset += 2;
+		};
+		strcat(sbuf + offset, "USB");
+		offset += 3;
+	};
 };
 
 
