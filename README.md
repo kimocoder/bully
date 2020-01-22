@@ -14,7 +14,7 @@ tested against access points from numerous vendors, and with differing configura
 
 # DEPENDENCIES
 
-Bully requires libpcap and libssl. It uses WPS functionality written by Jouni Malinen; that source code
+Bully requires 'libpcap'. It uses WPS functionality written by Jouni Malinen; that source code
 is included in this repro for simplicity, as are libcrypto and several other sources that provide needed
 functionality.
 
@@ -27,7 +27,7 @@ functionality.
 Bully can be built and installed by running:
 
         ~/bully$ apt-get update
-        ~/bully$ apt-get install libpcap-dev libssl-dev
+        ~/bully$ apt-get install libpcap-dev
 	~/bully$ cd src
 	~/bully/src$ make
 	~/bully/src$ make install
