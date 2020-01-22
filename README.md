@@ -1,7 +1,4 @@
 
-**A readonly subversion clone of this project exists at http://code.google.com/p/bully/source/checkout **
-
-**Prebuilt binary(s) can be downloaded from google code at http://code.google.com/p/bully/downloads/list **
 
 # OVERVIEW
 
@@ -29,9 +26,11 @@ functionality.
 
 Bully can be built and installed by running:
 
+        ~/bully$ apt-get update
+        ~/bully$ apt-get install libpcap-dev libssl-dev
 	~/bully$ cd src
 	~/bully/src$ make
-	~/bully/src$ sudo make install
+	~/bully/src$ make install
 
 
 # OPENWRT BUILDS

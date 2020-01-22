@@ -19,7 +19,7 @@
 #ifndef	_IFACE_H
 #define	_IFACE_H
 
-char	BG_CHANS[] = "1,5,9,2,6,10,3,7,11,4,8";
+char	BG_CHANS[] = "1,5,9,13,2,6,10,3,7,11,4,8,12";
 char	AN_CHANS[] = "36,40,44,48,52,56,58,60";
 
 struct cfreq {
