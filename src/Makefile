@@ -17,7 +17,7 @@ SRCS	= $(W_NAME).c 80211.c frame.c iface.c crc32.c timer.c utils.c
 all: $(W_NAME)
 
 $(W_NAME): $(HDRS) $(SRCS)
-	$(CC) $(CFLAGS) -o $(@) $(W_NAME).c $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $(@) $(W_NAME).c pdust.c $(LDFLAGS)
 
 strip: $(W_NAME)
 	strip $(W_NAME)

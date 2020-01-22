@@ -131,6 +131,50 @@ tag_t *find_tag(void *tagp, int tagl, uint8 id, int len, uint8* vid, int vlen)
 };
 
 
+int get_oui_vendor(void *tagp, int tagl, uint8 oui[3])
+{
+	#define MIN_OUI_TAG_LEN	6
+	#define MAX_OUI_TAG_LEN	9
+	#define SINGLETON_LEN	10
+
+	uint8 singleton[3] = "\x00\x03\x7f";
+
+	tag_t *tag = (tag_t*)tagp;
+	while (0 < tagl) {
+		if (tag->id != TAG_VEND)
+			goto next_tag;
+		if (tag->len >= MIN_OUI_TAG_LEN && tag->len <= MAX_OUI_TAG_LEN) {
+			if (tag->data[3] == 2 ||
+				tag->data[3] == 4 ||
+				tag->data[3] == 7 ||
+				tag->data[3] == 1 ||
+				tag->data[3] == 0 ||
+				tag->data[3] == 3) {
+
+				memcpy(oui, tag->data, 3);
+				return 1;
+			} else {
+				goto next_tag;
+			};
+		} else {
+			if (tag->len == SINGLETON_LEN && !memcmp(singleton, tag->data, 3)) {
+				memcpy(oui, tag->data, 3);
+				return 1;
+			} else {
+				goto next_tag;
+			};
+		};
+
+next_tag:
+		tagl -= tag->len + TAG_SIZE;
+		tag = (tag_t*)((uint8*)tag + tag->len + TAG_SIZE);
+	};
+	if (tagl)
+		vprint("[!] Information element tag(s) extend past end of frame\n");
+	return 0;
+};
+
+
 vtag_t *find_vtag(void *vtagp, int vtagl, uint8* vid, int vlen)
 {
 	vtag_t *vtag = (vtag_t*)vtagp;
