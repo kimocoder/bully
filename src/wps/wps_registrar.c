@@ -2261,7 +2261,9 @@ static enum wps_process_res wps_process_m3(struct wps_data *wps,
 		return WPS_CONTINUE;
 	}
 
-	wps->state = SEND_M4;
+	if (run_pixiewps != 2) {
+		wps->state = SEND_M4;
+	}
 	return WPS_CONTINUE;
 }
 
