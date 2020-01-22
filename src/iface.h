@@ -1,6 +1,7 @@
 /*
     bully - retrieve WPA/WPA2 passphrase from a WPS-enabled AP
 
+    Copyright (C) 2020  kimocoder     <christian@aircrack-ng.org>
     Copyright (C) 2012  Brian Purcell <purcell.briand@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
@@ -18,6 +19,8 @@
 */
 #ifndef	_IFACE_H
 #define	_IFACE_H
+
+#include "bully.h"
 
 char	BG_CHANS[] = "1,5,9,13,2,6,10,3,7,11,4,8,12";
 char	AN_CHANS[] = "36,40,44,48,52,56,58,60";
@@ -72,5 +75,8 @@ struct cfreq {
 };
 #define	NUM_CHAN (sizeof(freqs)/sizeof(struct cfreq))
 
+int set_chan(struct global *G, int chan);
+int set_chanx(struct global *G, int chanx);
+int next_chan(struct global *G);
 
 #endif /* _IFACE_H */
