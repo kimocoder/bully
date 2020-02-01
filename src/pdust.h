@@ -42,4 +42,22 @@ extern vendor_t vendor_list[];
 
 char *get_vendor(uint8_t *oui);
 
+struct wps_info {
+	uint8_t vendor[3];
+	uint8_t vendor_p;
+	uint8_t version;
+	uint8_t uuid[16];
+	uint16_t category;
+	uint16_t subcategory;
+	uint16_t passw_id;
+	uint8_t passw_id_p;
+	uint16_t config_methods;
+	char manufacturer[64 + 1];
+	char device_name[32 + 1];
+	char model_name[32 + 1];
+	char model_number[32 + 1];
+	char serial_number[32 + 1];
+};
+typedef struct wps_info wps_info_t;
+
 #endif /* _PDUST_H */
