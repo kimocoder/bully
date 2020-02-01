@@ -855,21 +855,23 @@ ap_probe:
 		memcpy(&G->wdata->wps->dev.os_version, W7_OS_VERSION, 4);
 	};
 
-	free(wconf);
-	free(wregc);
+	{ /* Two files: *.pins and *.run */
+		size_t wsize = strlen(G->warpath);
+		G->pinf = malloc(wsize + 19);
+		strcpy(G->pinf, G->warpath);
+		G->pinf[wsize] = '/';
+		strcpy(G->pinf + wsize + 1, hex(G->bssid, 6));
+		strcpy(G->pinf + wsize + 1 + 12, ".pins");
 
-	G->pinf = malloc(strlen(G->warpath) + 6);
-	strcpy(G->pinf, G->warpath);
-	strcat(G->pinf, "/pins");
+		if (G->random)
+			init_pins(G);
 
-	if (G->random)
-		init_pins(G);
-
-	G->runf = malloc(strlen(G->warpath) + 18);
-	strcpy(G->runf, G->warpath);
-	strcat(G->runf, "/");
-	strcat(G->runf, hex(G->bssid, 6));
-	strcat(G->runf, ".run");
+		G->runf = malloc(wsize + 18);
+		strcpy(G->runf, G->warpath);
+		G->runf[wsize] = '/';
+		strcpy(G->runf + wsize + 1, hex(G->bssid, 6));
+		strcpy(G->runf + wsize + 1 + 12, ".run");
+	}
 
 	char	pinstr[9];
 	int	pincount, savecount;
