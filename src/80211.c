@@ -18,80 +18,95 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+
 #include "80211.h"
 #include "frame.h"
 
 
 int parse_packet(frame_t *fp, uint8 *pack, int len, int has_rth, int has_fcs)
 {
-	rth_t	*rth = (rth_t*)pack;
-	int	rthl = (has_rth ? le16toh(rth->it_len) : 0);
+	rth_t *rth = (rth_t*)pack;
+	int rthl = (has_rth ? le16toh(rth->it_len) : 0);
 
-	mac_t	*mac = (mac_t*)(pack+rthl);
-	int	macl = MAC_SIZE_NORM;
+	mac_t *mac = (mac_t*)(pack + rthl);
+	int macl = MAC_SIZE_NORM;
 	if (mac->type == MAC_TYPE_CTRL) {
 		if (mac->subtype == MAC_ST_RTS)
 			macl = MAC_SIZE_RTS;
-		else
-			if (mac->subtype == MAC_ST_ACK)
-				macl = MAC_SIZE_ACK;
-	} else
-		if (mac->type == MAC_TYPE_DATA)
-			if (mac->subtype & MAC_ST_QOSDATA)
-				macl += QOS_SIZE;
+		else if (mac->subtype == MAC_ST_ACK)
+			macl = MAC_SIZE_ACK;
+	}
+	else if (mac->type == MAC_TYPE_DATA)
+		if (mac->subtype & MAC_ST_QOSDATA)
+			macl += QOS_SIZE;
 
-	int	fcsl = (has_fcs ? 4 : 0);
-	fcs_t	*fcs = (fcs_t*)(pack+len-fcsl);
+	int fcsl = (has_fcs ? 4 : 0);
+	fcs_t *fcs = (fcs_t*)(pack + len - fcsl);
 
-	uint8	*pay = ((uint8*)mac)+macl;
-	int	plen = ((uint8*)fcs)-pay;
+	uint8 *pay = ((uint8*)mac) + macl;
+	int plen = ((uint8*)fcs) - pay;
 
-	fp[F_ALL].data = uc(pack);	fp[F_ALL].size = len;
-	fp[F_TAP].data = uc(rth);	fp[F_TAP].size = rthl;
-	fp[F_MAC].data = uc(mac);	fp[F_MAC].size = macl;
-	fp[F_PAY].data = uc(pay);	fp[F_PAY].size = plen;
-	fp[F_FCS].data = uc(fcs);	fp[F_FCS].size = fcsl;
+	fp[F_ALL].data = uc(pack);
+	fp[F_ALL].size = len;
+	fp[F_TAP].data = uc(rth);
+	fp[F_TAP].size = rthl;
+	fp[F_MAC].data = uc(mac);
+	fp[F_MAC].size = macl;
+	fp[F_PAY].data = uc(pay);
+	fp[F_PAY].size = plen;
+	fp[F_FCS].data = uc(fcs);
+	fp[F_FCS].size = fcsl;
 
 	if (mac->type == MAC_TYPE_DATA
-			&& LLC_SIZE <= plen
-			&& be16toh(((llc_t*)pay)->type) == LLC_TYPE_AUTH)
-	{
+		&& LLC_SIZE <= plen && be16toh(((llc_t*)pay)->type) == LLC_TYPE_AUTH) {
 		fp[F_PAY].list = &fp[F_LLC];
 
 		llc_t *llc = (llc_t*)pay;
 		int llcl = LLC_SIZE;
-		pay += llcl; plen -= llcl;
+		pay += llcl;
+		plen -= llcl;
 
 		d1x_t *d1x = (d1x_t*)pay;
 		int d1xl = D1X_SIZE;
-		pay += d1xl; plen -= d1xl;
+		pay += d1xl;
+		plen -= d1xl;
 
 		eap_t *eap = (eap_t*)pay;
 		int eapl = (d1xl && d1x->type == D1X_TYPE_EAP ? EAP_SIZE : 0);
-		pay += eapl; plen -= eapl;
+		pay += eapl;
+		plen -= eapl;
 
 		wfa_t *wfa = (wfa_t*)pay;
 		int wfal = (eapl && eap->type == EAP_TYPE_EXPAND ? WFA_SIZE : 0);
 		if (wfal)
-			if (memcmp(wfa->vid,WFA_VENDOR,sizeof(wfa->vid)) != 0
-					|| be32toh(wfa->type) != WFA_SIMPLECONF)
+			if (memcmp(wfa->vid, WFA_VENDOR, sizeof(wfa->vid)) != 0
+				|| be32toh(wfa->type) != WFA_SIMPLECONF)
 				wfal = 0;
-		pay += wfal; plen -= wfal;
+		pay += wfal;
+		plen -= wfal;
 
 		vtag_t *msg = (vtag_t*)pay;
 		int msgl = (wfal ? be16toh(eap->len) - (eapl + wfal) : 0);
-		pay += msgl; plen -= msgl;
+		pay += msgl;
+		plen -= msgl;
 
-		fp[F_LLC].data = uc(llc);	fp[F_LLC].size = llcl;
-		fp[F_D1X].data = uc(d1x);	fp[F_D1X].size = d1xl;
-		fp[F_EAP].data = uc(eap);	fp[F_EAP].size = eapl;
-		fp[F_WFA].data = uc(wfa);	fp[F_WFA].size = wfal;
-		fp[F_MSG].data = uc(msg);	fp[F_MSG].size = msgl;
-		fp[F_IDK].data = uc(pay);	fp[F_IDK].size = plen;
+		fp[F_LLC].data = uc(llc);
+		fp[F_LLC].size = llcl;
+		fp[F_D1X].data = uc(d1x);
+		fp[F_D1X].size = d1xl;
+		fp[F_EAP].data = uc(eap);
+		fp[F_EAP].size = eapl;
+		fp[F_WFA].data = uc(wfa);
+		fp[F_WFA].size = wfal;
+		fp[F_MSG].data = uc(msg);
+		fp[F_MSG].size = msgl;
+		fp[F_IDK].data = uc(pay);
+		fp[F_IDK].size = plen;
 
 		if (eapl && eap->code == EAP_CODE_FAIL)
 			return EAPFAIL;
-	} else
+	}
+	else
 		fp[F_PAY].list = NULL;
 
 	return SUCCESS;
@@ -102,26 +117,27 @@ uint8 *build_packet(uint8 *pack, int plen, uint8 *msg, int mlen)
 {
 	int len = plen + mlen;
 	uint8 *buf = malloc(len);
-	memcpy(buf,pack,plen);
-	memcpy(&buf[len-4],&buf[plen-4],4);
-	memcpy(&buf[plen-4],msg,mlen);
+	memcpy(buf, pack, plen);
+	memcpy(&buf[len - 4], &buf[plen - 4], 4);
+	memcpy(&buf[plen - 4], msg, mlen);
 	return buf;
 };
 
 
-tag_t *find_tag(void *tagp, int tagl, uint8 id, int len, uint8* vid, int vlen)
+tag_t *find_tag(void *tagp, int tagl, uint8 id, int len, uint8 *vid, int vlen)
 {
 	tag_t *tag = (tag_t*)tagp;
-	while (0<tagl) {
-		if (id && tag->id!=id)
+	while (0 < tagl) {
+		if (id && tag->id != id)
 			goto next_tag;
-		if (len && tag->len!=len)
+		if (len && tag->len != len)
 			goto next_tag;
-		if (id!=TAG_VEND || vid==NULL || vlen==0)
+		if (id != TAG_VEND || vid == NULL || vlen == 0)
 			return tag;
-		if (memcmp(vid,tag->data,vlen)==0)
+		if (memcmp(vid, tag->data, vlen) == 0)
 			return tag;
-	next_tag:
+
+next_tag:
 		tagl -= tag->len + TAG_SIZE;
 		tag = (tag_t*)((uint8*)tag + tag->len + TAG_SIZE);
 	};
@@ -131,11 +147,11 @@ tag_t *find_tag(void *tagp, int tagl, uint8 id, int len, uint8* vid, int vlen)
 };
 
 
-int get_oui_vendor(void *tagp, int tagl, uint8 oui[3])
+int get_oui_vendor(void *tagp, int tagl, uint8 *oui)
 {
-	#define MIN_OUI_TAG_LEN	6
-	#define MAX_OUI_TAG_LEN	9
-	#define SINGLETON_LEN	10
+	#define MIN_OUI_TAG_LEN    6
+	#define MAX_OUI_TAG_LEN    9
+	#define SINGLETON_LEN     10
 
 	uint8 singleton[3] = "\x00\x03\x7f";
 
@@ -144,30 +160,29 @@ int get_oui_vendor(void *tagp, int tagl, uint8 oui[3])
 		if (tag->id != TAG_VEND)
 			goto next_tag;
 		if (tag->len >= MIN_OUI_TAG_LEN && tag->len <= MAX_OUI_TAG_LEN) {
-			if (tag->data[3] == 2 ||
-				tag->data[3] == 4 ||
-				tag->data[3] == 7 ||
-				tag->data[3] == 1 ||
-				tag->data[3] == 0 ||
-				tag->data[3] == 3) {
+			if (tag->data[3] == 2 || tag->data[3] == 4 || tag->data[3] == 7 || tag->data[3] == 1
+				|| tag->data[3] == 0 || tag->data[3] == 3) {
 
 				memcpy(oui, tag->data, 3);
 				return 1;
-			} else {
+			}
+			else {
 				goto next_tag;
 			};
-		} else {
+		}
+		else {
 			if (tag->len == SINGLETON_LEN && !memcmp(singleton, tag->data, 3)) {
 				memcpy(oui, tag->data, 3);
 				return 1;
-			} else {
+			}
+			else {
 				goto next_tag;
 			};
 		};
 
 next_tag:
 		tagl -= tag->len + TAG_SIZE;
-		tag = (tag_t*)((uint8*)tag + tag->len + TAG_SIZE);
+		tag = (tag_t*)((uint8*) tag + tag->len + TAG_SIZE);
 	};
 	if (tagl)
 		vprint("[!] Information element tag(s) extend past end of frame\n");
@@ -175,17 +190,18 @@ next_tag:
 };
 
 
-vtag_t *find_vtag(void *vtagp, int vtagl, uint8* vid, int vlen)
+vtag_t *find_vtag(void *vtagp, int vtagl, uint8 *vid, int vlen)
 {
 	vtag_t *vtag = (vtag_t*)vtagp;
-	while (0<vtagl) {
-		if (vid && memcmp(vid,&vtag->id,2) != 0)
+	while (0 < vtagl) {
+		if (vid && memcmp(vid, &vtag->id, 2) != 0)
 			goto next_vtag;
 		if (!vlen || be16toh(vtag->len) == vlen);
-			return vtag;
-	next_vtag:
+		return vtag;
+
+next_vtag:
 		vtagl -= be16toh(vtag->len) + VTAG_SIZE;
-		vtag = (vtag_t*)((uint8*)vtag + be16toh(vtag->len) + VTAG_SIZE);
+		vtag = (vtag_t*)((uint8*) vtag + be16toh(vtag->len) + VTAG_SIZE);
 	};
 	if (vtagl)
 		vprint("[!] Information element tag(s) extend past end of frame\n");
@@ -197,144 +213,144 @@ void build_dev_type_string(const uint16 cat, const uint16 scat, char *sbuf, cons
 {
 	sbuf[0] = '\0';
 	switch (cat) {
-		case 1  :
-			strcpy(sbuf, "Computer");
-			sbuf += 8;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", PC");						break;
-				case 2 : strcat(sbuf, ", Server");					break;
-				case 3 : strcat(sbuf, ", Media center");			break;
-				case 4 : strcat(sbuf, ", Ultra-mobile PC");			break;
-				case 5 : strcat(sbuf, ", Notebook");				break;
-				case 6 : strcat(sbuf, ", Desktop");					break;
-				case 7 : strcat(sbuf, ", Mobile Internet Device");	break;
-				case 8 : strcat(sbuf, ", Netbook");					break;
-				case 9 : strcat(sbuf, ", Tablet");					break;
-				default: break;
-			};
-			break;
-		case 2  :
-			strcpy(sbuf, "Input Device");
-			sbuf += 12;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", Keyboard");			break;
-				case 2 : strcat(sbuf, ", Mouse");				break;
-				case 3 : strcat(sbuf, ", Joystick");			break;
-				case 4 : strcat(sbuf, ", Trackball");			break;
-				case 5 : strcat(sbuf, ", Gaming controller");	break;
-				case 6 : strcat(sbuf, ", Remote");				break;
-				case 7 : strcat(sbuf, ", Touchscreen");			break;
-				case 8 : strcat(sbuf, ", Biometric reader");	break;
-				case 9 : strcat(sbuf, ", Barcode reader");		break;
-				default: break;
-			};
-			break;
-		case 3  :
-			strcpy(sbuf, "Printer/Scanner");
-			sbuf += 15;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", Printer");		break;
-				case 2 : strcat(sbuf, ", Scanner");		break;
-				case 3 : strcat(sbuf, ", Fax");			break;
-				case 4 : strcat(sbuf, ", Copier");		break;
-				case 5 : strcat(sbuf, ", All-in-one");	break;
-				default: break;
-			};
-			break;
-		case 4  :
-			strcpy(sbuf, "Camera");
-			sbuf += 6;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", Printer");		break;
-				case 2 : strcat(sbuf, ", Scanner");		break;
-				case 3 : strcat(sbuf, ", Fax");			break;
-				case 4 : strcat(sbuf, ", Copier");		break;
-				case 5 : strcat(sbuf, ", All-in-one");	break;
-				default: break;
-			};
-			break;
-		case 5  :
-			strcpy(sbuf, "Storage");
-			sbuf += 7;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", NAS");	break;
-				default: break;
-			};
-			break;
-		case 6  :
-			strcpy(sbuf, "Network Infrastructure");
-			sbuf += 22;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", AP");		break;
-				case 2 : strcat(sbuf, ", Router");	break;
-				case 3 : strcat(sbuf, ", Switch");	break;
-				case 4 : strcat(sbuf, ", Gateway");	break;
-				default: break;
-			};
-			break;
-		case 7  :
-			strcpy(sbuf, "Display");
-			sbuf += 7;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", Television");					break;
-				case 2 : strcat(sbuf, ", Electronic Picture Frame");	break;
-				case 3 : strcat(sbuf, ", Projector");					break;
-				case 4 : strcat(sbuf, ", Monitor");						break;
-				default: break;
-			};
-			break;
-		case 8  :
-			strcpy(sbuf, "Multimedia Device");
-			sbuf += 17;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", DAR");								break;
-				case 2 : strcat(sbuf, ", PVR");								break;
-				case 3 : strcat(sbuf, ", MCX");								break;
-				case 4 : strcat(sbuf, ", Set-top box");						break;
-				case 5 : strcat(sbuf, ", Media server/adapter/extender");	break;
-				default: break;
-			};
-			break;
-		case 9  :
-			strcpy(sbuf, "Gaming Device");
-			sbuf += 13;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", Xbox");					break;
-				case 2 : strcat(sbuf, ", Xbox360");					break;
-				case 3 : strcat(sbuf, ", Playstation");				break;
-				case 4 : strcat(sbuf, ", Game console/adapter");	break;
-				case 5 : strcat(sbuf, ", Portable gaming device");	break;
-				default: break;
-			};
-			break;
-		case 10  :
-			strcpy(sbuf, "Telephone");
-			sbuf += 9;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", Windows Mobile");				break;
-				case 2 : strcat(sbuf, ", Phone - single mode");			break;
-				case 3 : strcat(sbuf, ", Phone - dual mode");			break;
-				case 4 : strcat(sbuf, ", Smartphone - single mode");	break;
-				case 5 : strcat(sbuf, ", Smartphone - dual mode");		break;
-				default: break;
-			};
-			break;
-		case 11 :
-			strcpy(sbuf, "Audio Device");
-			sbuf += 12;
-			switch (scat) {
-				case 1 : strcat(sbuf, ", Audio tuner/receiver");	break;
-				case 2 : strcat(sbuf, ", Speakers");				break;
-				case 3 : strcat(sbuf, ", Portable Music Player");	break;
-				case 4 : strcat(sbuf, ", Headset");					break;
-				case 5 : strcat(sbuf, ", Headphones");				break;
-				case 6 : strcat(sbuf, ", Microphone");				break;
-				case 7 : strcat(sbuf, ", Home Threater Systems");	break;
-				default: break;
-			};
-			break;
-		default:
-			break;
+	case 1:
+		strcpy(sbuf, "Computer");
+		sbuf += 8;
+		switch (scat) {
+		case 1: strcat(sbuf, ", PC");                     break;
+		case 2: strcat(sbuf, ", Server");                 break;
+		case 3: strcat(sbuf, ", Media center");           break;
+		case 4: strcat(sbuf, ", Ultra-mobile PC");        break;
+		case 5: strcat(sbuf, ", Notebook");               break;
+		case 6: strcat(sbuf, ", Desktop");                break;
+		case 7: strcat(sbuf, ", Mobile Internet Device"); break;
+		case 8: strcat(sbuf, ", Netbook");                break;
+		case 9: strcat(sbuf, ", Tablet");                 break;
+		default: break;
+		};
+		break;
+	case 2:
+		strcpy(sbuf, "Input Device");
+		sbuf += 12;
+		switch (scat) {
+		case 1: strcat(sbuf, ", Keyboard");          break;
+		case 2: strcat(sbuf, ", Mouse");             break;
+		case 3: strcat(sbuf, ", Joystick");          break;
+		case 4: strcat(sbuf, ", Trackball");         break;
+		case 5: strcat(sbuf, ", Gaming controller"); break;
+		case 6: strcat(sbuf, ", Remote");            break;
+		case 7: strcat(sbuf, ", Touchscreen");       break;
+		case 8: strcat(sbuf, ", Biometric reader");  break;
+		case 9: strcat(sbuf, ", Barcode reader");    break;
+		default: break;
+		};
+		break;
+	case 3:
+		strcpy(sbuf, "Printer/Scanner");
+		sbuf += 15;
+		switch (scat) {
+		case 1: strcat(sbuf, ", Printer");    break;
+		case 2: strcat(sbuf, ", Scanner");    break;
+		case 3: strcat(sbuf, ", Fax");        break;
+		case 4: strcat(sbuf, ", Copier");     break;
+		case 5: strcat(sbuf, ", All-in-one"); break;
+		default: break;
+		};
+		break;
+	case 4:
+		strcpy(sbuf, "Camera");
+		sbuf += 6;
+		switch (scat) {
+		case 1: strcat(sbuf, ", Printer");    break;
+		case 2: strcat(sbuf, ", Scanner");    break;
+		case 3: strcat(sbuf, ", Fax");        break;
+		case 4: strcat(sbuf, ", Copier");     break;
+		case 5: strcat(sbuf, ", All-in-one"); break;
+		default: break;
+		};
+		break;
+	case 5:
+		strcpy(sbuf, "Storage");
+		sbuf += 7;
+		switch (scat) {
+		case 1: strcat(sbuf, ", NAS"); break;
+		default: break;
+		};
+		break;
+	case 6:
+		strcpy(sbuf, "Network Infrastructure");
+		sbuf += 22;
+		switch (scat) {
+		case 1: strcat(sbuf, ", AP");      break;
+		case 2: strcat(sbuf, ", Router");  break;
+		case 3: strcat(sbuf, ", Switch");  break;
+		case 4: strcat(sbuf, ", Gateway"); break;
+		default: break;
+		};
+		break;
+	case 7:
+		strcpy(sbuf, "Display");
+		sbuf += 7;
+		switch (scat) {
+		case 1: strcat(sbuf, ", Television");               break;
+		case 2: strcat(sbuf, ", Electronic Picture Frame"); break;
+		case 3: strcat(sbuf, ", Projector");                break;
+		case 4: strcat(sbuf, ", Monitor");                  break;
+		default: break;
+		};
+		break;
+	case 8:
+		strcpy(sbuf, "Multimedia Device");
+		sbuf += 17;
+		switch (scat) {
+		case 1: strcat(sbuf, ", DAR");                           break;
+		case 2: strcat(sbuf, ", PVR");                           break;
+		case 3: strcat(sbuf, ", MCX");                           break;
+		case 4: strcat(sbuf, ", Set-top box");                   break;
+		case 5: strcat(sbuf, ", Media server/adapter/extender"); break;
+		default: break;
+		};
+		break;
+	case 9:
+		strcpy(sbuf, "Gaming Device");
+		sbuf += 13;
+		switch (scat) {
+		case 1: strcat(sbuf, ", Xbox");                   break;
+		case 2: strcat(sbuf, ", Xbox360");                break;
+		case 3: strcat(sbuf, ", Playstation");            break;
+		case 4: strcat(sbuf, ", Game console/adapter");   break;
+		case 5: strcat(sbuf, ", Portable gaming device"); break;
+		default: break;
+		};
+		break;
+	case 10:
+		strcpy(sbuf, "Telephone");
+		sbuf += 9;
+		switch (scat) {
+		case 1: strcat(sbuf, ", Windows Mobile");           break;
+		case 2: strcat(sbuf, ", Phone - single mode");      break;
+		case 3: strcat(sbuf, ", Phone - dual mode");        break;
+		case 4: strcat(sbuf, ", Smartphone - single mode"); break;
+		case 5: strcat(sbuf, ", Smartphone - dual mode");   break;
+		default: break;
+		};
+		break;
+	case 11:
+		strcpy(sbuf, "Audio Device");
+		sbuf += 12;
+		switch (scat) {
+		case 1: strcat(sbuf, ", Audio tuner/receiver");  break;
+		case 2: strcat(sbuf, ", Speakers");              break;
+		case 3: strcat(sbuf, ", Portable Music Player"); break;
+		case 4: strcat(sbuf, ", Headset");               break;
+		case 5: strcat(sbuf, ", Headphones");            break;
+		case 6: strcat(sbuf, ", Microphone");            break;
+		case 7: strcat(sbuf, ", Home Threater Systems"); break;
+		default: break;
+		};
+		break;
+	default:
+		break;
 	};
 };
 
@@ -401,7 +417,7 @@ uint8 *build_ietags(tag_t *tags[], int *tagl)
 	*tagl = len;
 	out = buf = malloc(len);
 	while (*tags) {
-		memcpy(buf,*tags,(*tags)->len + sizeof(tag_t));
+		memcpy(buf, *tags, (*tags)->len + sizeof(tag_t));
 		buf += (*tags++)->len + sizeof(tag_t);
 	};
 	return out;
@@ -409,27 +425,27 @@ uint8 *build_ietags(tag_t *tags[], int *tagl)
 
 
 int next_packet(struct global *G, uint8 type, uint8 subtype, uint8 *dest, uint8 *src,
-			int pkt, int parse)
+				int pkt, int parse)
 {
 	struct timeval timeout, begin;
 
-	uint8	*pack;
-	int	len, fc = 0, time;
+	uint8 *pack;
+	int len, fc = 0, time;
 
 	gettimeofday(&begin, 0);
 
 	if (times[pkt].user)
 		set_timer(&timeout, times[pkt].user);
+	else if (G->suppress)
+		set_timer(&timeout, times[pkt].def);
 	else
-		if (G->suppress)
-			set_timer(&timeout, times[pkt].def);
-		else
-			set_timer(&timeout, times[pkt].avg + (times[pkt].avg>>3) + 5);
+		set_timer(&timeout, times[pkt].avg + (times[pkt].avg >> 3) + 5);
 
 	while (!ctrlc || START_EAPOL < G->state) {
 
 		if (check_timer(&timeout)) {
-			times[pkt].avg = (times[pkt].avg * times[pkt].count + times[pkt].max) / (times[pkt].count + 1);
+			times[pkt].avg =
+				(times[pkt].avg * times[pkt].count + times[pkt].max) / (times[pkt].count + 1);
 			times[pkt].count++;
 			return TIMEOUT;
 		};
@@ -439,33 +455,34 @@ int next_packet(struct global *G, uint8 type, uint8 subtype, uint8 *dest, uint8 
 		if ((len = G->phdr->len) == 0)
 			continue;
 
-		rth_t	*rth = (rth_t*)pack;
-		int	rthl = (G->has_rth ? le16toh(rth->it_len) : 0);
+		rth_t *rth = (rth_t*)pack;
+		int rthl = (G->has_rth ? le16toh(rth->it_len) : 0);
 
-		mac_t	*mac = (mac_t*)(pack+rthl);
-		if (memcmp(dest,NULL_MAC,6) != 0 && memcmp(mac->adr1.addr,dest,6) != 0)
+		mac_t *mac = (mac_t*)(pack + rthl);
+		if (memcmp(dest, NULL_MAC, 6) != 0 && memcmp(mac->adr1.addr, dest, 6) != 0)
 			continue;
-		if (memcmp(src, NULL_MAC,6) != 0 && memcmp(mac->adr2.addr,src ,6) != 0)
+		if (memcmp(src, NULL_MAC, 6) != 0 && memcmp(mac->adr2.addr, src, 6) != 0)
 			continue;
 
 		if (mac->type != type)
 			goto ck_deauth;
 		if (mac->subtype != subtype)
-			if (type!=MAC_TYPE_DATA || mac->subtype!=(subtype|MAC_ST_QOSDATA))
+			if (type != MAC_TYPE_DATA || mac->subtype != (subtype | MAC_ST_QOSDATA))
 				goto ck_deauth;
 
 		time = elapsed(&begin);
 
 		if (G->has_fcs && !G->nocheck) {
-			uint32 crc = ~crc32((u_char*)mac, len-rthl-4);
-			uint32 fcs = ((fcs_t*)(pack+len-4))->fcs;
+			uint32 crc = ~crc32((u_char*)mac, len - rthl - 4);
+			uint32 fcs = ((fcs_t*)(pack + len - 4))->fcs;
 			if (bswap_32(crc) != be32toh(fcs)) {
 				fc++;
-				if (MAX_FCS_FAIL<=fc) {
+				if (MAX_FCS_FAIL <= fc) {
 					vprint("[!] Excessive (%d) FCS failures while reading next packet\n",
-						MAX_FCS_FAIL);
+						   MAX_FCS_FAIL);
 					return FCSFAIL;
-				} else
+				}
+				else
 					continue;
 			};
 		};
@@ -478,11 +495,10 @@ int next_packet(struct global *G, uint8 type, uint8 subtype, uint8 *dest, uint8 
 
 		break;
 
-	ck_deauth:
-		if (mac->type==MAC_TYPE_MGMT)
-			if ((mac->subtype==MAC_ST_DISASSOC || mac->subtype==MAC_ST_DEAUTH)
-				&& memcmp(dest,NULL_MAC,6) != 0)
-			{
+ck_deauth:
+		if (mac->type == MAC_TYPE_MGMT)
+			if ((mac->subtype == MAC_ST_DISASSOC || mac->subtype == MAC_ST_DEAUTH)
+				&& memcmp(dest, NULL_MAC, 6) != 0) {
 				vprint("[!] Received disassociation/deauthentication from the AP\n");
 				return DEORDIS;
 			};
@@ -496,31 +512,32 @@ int send_packet(struct global *G, uint8 *pack, int len, int noack)
 {
 	int result = SUCCESS;
 
-	mac_t *mac = (mac_t*)(pack+RTH_SIZE);
+	mac_t *mac = (mac_t*)(pack + RTH_SIZE);
 
-	if (32<=len) {
+	if (32 <= len) {
 		uint16 s = G->sequence++ << 4;
 		mac->sequence = htole16(s);
 	};
 
-//	if (G->use_fcs) {
-//		uint32 crc = ~crc32((u_char*)mac, len-RTH_SIZE-4);
-//		uint32 fcs = bswap_32(crc);
-//		*(uint32*)(pack+len-4) = htobe32(fcs);
-//	} else
-		len -= 4;
+//  if (G->use_fcs) {
+//      uint32 crc = ~crc32((u_char*)mac, len-RTH_SIZE-4);
+//      uint32 fcs = bswap_32(crc);
+//      *(uint32*)(pack+len-4) = htobe32(fcs);
+//  } else
+	len -= 4;
 
 	int count = 0;
 
 retry_snd:
 	if (pcap_inject(G->pfd, pack, len) != len) {
 		vprint("[!] Pcap injection error, failed packet follows\n");
-		vprint("[!] >%s<\n",hex(pack,len));
+		vprint("[!] >%s<\n", hex(pack, len));
 		return INJFAIL;
 	};
 
 	if (G->use_ack && !noack) {
-		result = next_packet(G, MAC_TYPE_CTRL, MAC_ST_ACK, mac->adr2.addr, NULL_MAC, PKT_ACK, FALSE);
+		result =
+			next_packet(G, MAC_TYPE_CTRL, MAC_ST_ACK, mac->adr2.addr, NULL_MAC, PKT_ACK, FALSE);
 		if (result == TIMEOUT) {
 			if (count++ < G->retries)
 				goto retry_snd;
@@ -541,7 +558,7 @@ void pcap_wait(struct global *G, int msdelay)
 };
 
 
-int	reassoc(struct global *G)
+int reassoc(struct global *G)
 {
 	int result, count = 1;
 
@@ -557,30 +574,30 @@ reassoc:
 
 	if (G->probe) {
 		result = send_packet(G, G->dprobe, G->reql, 1);
-		result = next_packet(G, MAC_TYPE_MGMT, MAC_ST_PROBE_RESP,
-						G->hwmac, G->bssid, PKT_PR, TRUE);
-	} else
-		result = next_packet(G, MAC_TYPE_MGMT, MAC_ST_BEACON,
-						BCAST_MAC, G->bssid, PKT_BEA, TRUE);
+		result = next_packet(G, MAC_TYPE_MGMT, MAC_ST_PROBE_RESP, G->hwmac, G->bssid, PKT_PR, TRUE);
+	}
+	else
+		result = next_packet(G, MAC_TYPE_MGMT, MAC_ST_BEACON, BCAST_MAC, G->bssid, PKT_BEA, TRUE);
 
 	if (result == SUCCESS) {
-		tag_t *tag = find_tag(G->inp[F_PAY].data+BFP_SIZE, G->inp[F_PAY].size-BFP_SIZE,
-					TAG_CHAN, 0, NULL, 0);
+		tag_t *tag = find_tag(G->inp[F_PAY].data + BFP_SIZE, G->inp[F_PAY].size - BFP_SIZE,
+							  TAG_CHAN, 0, NULL, 0);
 		if (tag && tag->data[0] != G->chans[G->chanx]) {
 			if (!G->fixed)
 				G->chanx = set_chan(G, tag->data[0]);
 			else
 				vprint("[!] The AP was previously on channel '%s', now on '%d'\n",
-							G->schan, tag->data[0]);
+					   G->schan, tag->data[0]);
 		};
-		tag = find_tag(G->inp[F_PAY].data+BFP_SIZE, G->inp[F_PAY].size-BFP_SIZE,
-				TAG_VEND, 0, MS_WPS_ID, 4);
+		tag = find_tag(G->inp[F_PAY].data + BFP_SIZE, G->inp[F_PAY].size - BFP_SIZE,
+					   TAG_VEND, 0, MS_WPS_ID, 4);
 		if (tag) {
-			vtag_t *vtag = find_vtag(&tag->data[4], tag->len-4, TAG_WPS_APLOCK, 1);
+			vtag_t *vtag = find_vtag(&tag->data[4], tag->len - 4, TAG_WPS_APLOCK, 1);
 			if (vtag && vtag->data[0] == TAG_WPS_LOCKED) {
 				if (!G->ignore) {
 					vprint("[!] WPS lockout reported, sleeping for %d seconds ...\n", G->lwait);
-				lockwait:
+
+lockwait:
 					pcap_wait(G, G->lwait * 1000);
 					G->dcount = 0;
 					goto reassoc;
@@ -591,7 +608,8 @@ reassoc:
 				goto lockwait;
 			};
 		};
-	} else {
+	}
+	else {
 		if (result == TIMEOUT) {
 			if (count++ < 3)
 				goto reassoc;
@@ -604,7 +622,7 @@ reassoc:
 	};
 
 	G->state++;
-	result = send_packet(G, deauth, sizeof(deauth)-1, 0);
+	result = send_packet(G, deauth, sizeof(deauth) - 1, 0);
 	if (result != SUCCESS)
 		return result;
 
@@ -615,7 +633,7 @@ reassoc:
 	};
 
 	G->state++;
-	result = send_packet(G, authrq, sizeof(authrq)-1, 0);
+	result = send_packet(G, authrq, sizeof(authrq) - 1, 0);
 	if (result != SUCCESS)
 		return result;
 
@@ -626,7 +644,7 @@ reassoc:
 	auth_t *auth = (auth_t*)(G->inp[F_PAY].data);
 	if (le16toh(auth->status) != AUTH_SUCCESS) {
 		vprint("[!] Authentication failure '0x%04x', restarting transaction\n",
-				le16toh(auth->status));
+			   le16toh(auth->status));
 		return DEORDIS;
 	};
 
@@ -641,8 +659,7 @@ reassoc:
 		return result;
 	resp_t *resp = (resp_t*)(G->inp[F_PAY].data);
 	if (le16toh(resp->status) != RESP_SUCCESS) {
-		vprint("[!] Association failure '0x%04x', restarting transaction\n",
-				le16toh(resp->status));
+		vprint("[!] Association failure '0x%04x', restarting transaction\n", le16toh(resp->status));
 		return DEORDIS;
 	};
 
@@ -655,17 +672,17 @@ int wpstran(struct global *G)
 	enum wsc_op_code opcode;
 	enum wps_state state;
 
-	int	result, quit = 0;
-	llc_t	*llc;
-	eap_t	*eap;
-	wfa_t	*wfa;
-	wpab_t	*msg;
-	uint8	*pack;
-	vtag_t	*tag;
+	int result, quit = 0;
+	llc_t *llc;
+	eap_t *eap;
+	wfa_t *wfa;
+	wpab_t *msg;
+	uint8 *pack;
+	vtag_t *tag;
 
 restart:
 	G->state = START_EAPOL;
-	result = send_packet(G, eapols, sizeof(eapols)-1, 0);
+	result = send_packet(G, eapols, sizeof(eapols) - 1, 0);
 	if (result != SUCCESS)
 		return result;
 
@@ -675,8 +692,9 @@ read_id:
 	if (result != SUCCESS)
 		return result;
 
-	if (!G->inp[F_PAY].list || G->inp[F_EAP].size<EAP_SIZE) {
-	eap_err:
+	if (!G->inp[F_PAY].list || G->inp[F_EAP].size < EAP_SIZE) {
+
+eap_err:
 		vprint("[!] Unexpected packet received when waiting for EAP Req Id\n");
 		vprint("[!] >%s<\n", hex(G->inp[F_ALL].data, G->inp[F_ALL].size));
 		return EAPFAIL;
@@ -689,7 +707,7 @@ read_id:
 
 send_id:
 	G->state++;
-	result = send_packet(G, eap_id, sizeof(eap_id)-1, 0);
+	result = send_packet(G, eap_id, sizeof(eap_id) - 1, 0);
 	if (result != SUCCESS)
 		return result;
 	G->wdata->state = RECV_M1;
@@ -699,33 +717,39 @@ read_mx:
 	state = G->wdata->state;
 
 	result = next_packet(G, MAC_TYPE_DATA, MAC_ST_DATA, G->hwmac, G->bssid,
-				((G->state-10)>>1)+6, TRUE);
+						 ((G->state - 10) >> 1) + 6, TRUE);
 
-	if (result != SUCCESS) switch (result) {
-		case FCSFAIL:	return result;
-		case DEORDIS:	return result;
-		case EAPFAIL:	eap = (eap_t*)G->inp[F_EAP].data;
-				eapolf[G->eapidx] = eap->id;
-				if (G->eapmode)
-					if (state==RECV_M5) {
-						quit = KEY1NAK;
-						G->eapflag = 1;
-					} else
-						if (state==RECV_M7) {
-							quit = KEY2NAK;
-							G->eapflag = 1;
-						} else
-							quit = result;
+	if (result != SUCCESS)
+		switch (result) {
+		case FCSFAIL:
+			return result;
+		case DEORDIS:
+			return result;
+		case EAPFAIL:
+			eap = (eap_t*)G->inp[F_EAP].data;
+			eapolf[G->eapidx] = eap->id;
+			if (G->eapmode)
+				if (state == RECV_M5) {
+					quit = KEY1NAK;
+					G->eapflag = 1;
+				}
+				else if (state == RECV_M7) {
+					quit = KEY2NAK;
+					G->eapflag = 1;
+				}
 				else
 					quit = result;
-				G->state++;
-				goto eapfail;
-		case TIMEOUT:	quit = result;
-				if (G->m57nack)
-					quit = (state==RECV_M5 ? KEY1NAK : state==RECV_M7 ? KEY2NAK : result);
-				G->wdata->state = SEND_WSC_NACK;
-				goto send_mx;
-	};
+			else
+				quit = result;
+			G->state++;
+			goto eapfail;
+		case TIMEOUT:
+			quit = result;
+			if (G->m57nack)
+				quit = (state == RECV_M5 ? KEY1NAK : state == RECV_M7 ? KEY2NAK : result);
+			G->wdata->state = SEND_WSC_NACK;
+			goto send_mx;
+		};
 
 	if (!G->inp[F_PAY].list || !G->inp[F_MSG].size) {
 		if (G->inp[F_PAY].list) {
@@ -735,22 +759,26 @@ read_mx:
 				goto read_mx;
 			};
 		};
-	wps_err:
+
+wps_err:
 		vprint("[!] Unexpected packet received when waiting for WPS Message\n");
 		vprint("[!] >%s<\n", hex(G->inp[F_ALL].data, G->inp[F_ALL].size));
-		quit = WPSFAIL; G->state++; goto eapfail;
+		quit = WPSFAIL;
+		G->state++;
+		goto eapfail;
 
-	} else {
-		tag = find_vtag(G->inp[F_MSG].data,G->inp[F_MSG].size,WPS_MSG_TYPE,1);
+	}
+	else {
+		tag = find_vtag(G->inp[F_MSG].data, G->inp[F_MSG].size, WPS_MSG_TYPE, 1);
 		if (tag) {
 			if (G->detect && state == RECV_M3)
 				if (tag->data[0] == MSG_NACK || tag->data[0] == MSG_M2D)
-					G->dcount+= 1;
+					G->dcount += 1;
 				else
 					G->dcount = 0;
 
 			if (tag->data[0] == MSG_NACK) {
-				quit = (state==RECV_M5 ? KEY1NAK : state==RECV_M7 ? KEY2NAK : WPSFAIL);
+				quit = (state == RECV_M5 ? KEY1NAK : state == RECV_M7 ? KEY2NAK : WPSFAIL);
 				if (quit != WPSFAIL) {
 					G->eapmode = 0;
 					if (G->eapflag) {
@@ -758,13 +786,14 @@ read_mx:
 						G->restart = 1;
 					};
 				};
-			} else
-				if (tag->data[0] != map[G->state]) {
-					vprint("[!] Received M2D or out of sequence WPS Message\n");
-					G->wdata->state = SEND_WSC_NACK;
-					quit = WPSFAIL;
-				};
-		} else
+			}
+			else if (tag->data[0] != map[G->state]) {
+				vprint("[!] Received M2D or out of sequence WPS Message\n");
+				G->wdata->state = SEND_WSC_NACK;
+				quit = WPSFAIL;
+			};
+		}
+		else
 			goto wps_err;
 	};
 
@@ -787,28 +816,30 @@ send_mx:
 	if (msg) {
 		uint8 *buf = msg->ext_data;
 		if (!buf)
-			buf = ((uint8*)msg)+sizeof(struct wpabuf);
+			buf = ((uint8*)msg) + sizeof(struct wpabuf);
 
 		int eapl = msg->used + EAP_SIZE + WFA_SIZE;
 		*(uint16*)(&wfamsg[G->eaplnx]) = htobe16(eapl);
 		*(uint16*)(&wfamsg[G->d1xlnx]) = htobe16(eapl);
 		wfamsg[G->wfaopx] = opcode;
 
-		pack = build_packet(wfamsg, sizeof(wfamsg)-1, buf, msg->used);
-		result = send_packet(G, pack, sizeof(wfamsg)-1 + msg->used, 0);
+		pack = build_packet(wfamsg, sizeof(wfamsg) - 1, buf, msg->used);
+		result = send_packet(G, pack, sizeof(wfamsg) - 1 + msg->used, 0);
 		free(pack);
 
 		if (result != SUCCESS)
 			return result;
-	} else
+	}
+	else
 		quit = WPSFAIL;
 
 eapfail:
 	if (quit) {
 		if (G->eapfail) {
-			send_packet(G, eapolf, sizeof(eapolf)-1, 0);
-			do {	result = next_packet(G, MAC_TYPE_DATA, MAC_ST_DATA,
-							G->hwmac, G->bssid, PKT_EAP, TRUE);
+			send_packet(G, eapolf, sizeof(eapolf) - 1, 0);
+			do {
+				result = next_packet(G, MAC_TYPE_DATA, MAC_ST_DATA,
+									 G->hwmac, G->bssid, PKT_EAP, TRUE);
 			} while (result != EAPFAIL && result != TIMEOUT);
 		};
 		G->state--;
@@ -817,4 +848,3 @@ eapfail:
 
 	goto read_mx;
 };
-
