@@ -77,6 +77,7 @@ Optional arguments:
   -o, --outfile file     : Output file for messages          [stdout]
   -p, --pin N            : Starting pin number (7 or 8 digits) [Auto]
   -s, --source macaddr   : Source (hardware) MAC address      [Probe]
+  -u, --lua              : Lua script file
   -v, --verbosity N      : Verbosity level 1-3, 1 is quietest     [3]
   -w, --workdir path     : Location of pin/session files  [~/.bully/]
   -5, --5ghz             : Hop on 5GHz a/n default channel list  [No]
