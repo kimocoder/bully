@@ -410,7 +410,7 @@ int char2int(char c)
     buf[0] = c;
     return strtol(buf, NULL, 16);
 }
-
+ 
 
 /* http://www.devttys0.com/2015/04/reversing-belkins-wps-pin-algorithm/ */
 /* Generates a standard WPS checksum from a 7 digit pin */
@@ -475,7 +475,7 @@ int pingen_belkin(char *mac, char *serial, int len_serial, int add)
 
     mac_len = strlen(mac);
     serial_len = len_serial;
-
+	
 	//serial[len_serial] = '\0';
 
     buff_mac_i = hexToInt(mac);
@@ -508,14 +508,14 @@ int pingen_belkin(char *mac, char *serial, int len_serial, int add)
           nic[NIC_NIBBLE_2]) % 16;
 
     pin = k1 ^ sn[SN_DIGIT_1];
-
+    
     t1 = k1 ^ sn[SN_DIGIT_0];
     t2 = k2 ^ nic[NIC_NIBBLE_1];
-
+    
     p1 = nic[NIC_NIBBLE_0] ^ sn[SN_DIGIT_1] ^ t1;
     p2 = k2 ^ nic[NIC_NIBBLE_0] ^ t2;
     p3 = k1 ^ sn[SN_DIGIT_2] ^ k2 ^ nic[NIC_NIBBLE_2];
-
+    
     k1 = k1 ^ k2;
 
     pin = (pin ^ k1) * 16;
@@ -526,10 +526,10 @@ int pingen_belkin(char *mac, char *serial, int len_serial, int add)
     pin = (pin + k1) * 16;
     pin += p3;
     pin = (pin % 10000000) - (((pin % 10000000) / 10000000) * k1);
-
+	
 	//pingen mac init c83a35
 	//printf("WPS PIN is: %07d%d\n",4402328%10000000,wps_checksum(4402328%10000000));
-
+    
     return (pin * 10) + wps_checksum(pin);
 }
 
@@ -538,6 +538,8 @@ int pingen_belkin(char *mac, char *serial, int len_serial, int add)
 Calculates the default WPS pin from the BSSID/MAC of many D-Link routers/APs.
 Craig Heffner
 Tactical Network Solutions 
+
+
 http://www.devttys0.com/2014/10/reversing-d-links-wps-pin-algorithm/
 */
 
@@ -556,11 +558,11 @@ int pingen_dlink(char *mac, int add)
 		 ((pin & 0x0F) << 16) +
 				 ((pin & 0x0F) << 20));
     pin = pin % (int) 10e6;
-
+	
     if (pin < (int) 10e5)
     {
     	pin += ((pin % 9) * (int)10e5) + (int)10e5;
-
+		
     }
 
     return (pin * 10) + wps_checksum(pin);
@@ -604,7 +606,7 @@ int pingen_zyxel(char *mac, int add)
     int pin;
 
     char mac_address[7] = {0};
-
+ 
     sprintf(mac_address, "%c%c%c%c%c%c", mac[6], mac[7], mac[8], mac[9], mac[10], mac[11]);
 
     pin = (hexToInt(mac_address) + add) % 10000000;

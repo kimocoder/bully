@@ -26,7 +26,7 @@
 
 typedef struct pcap_pkthdr	phdr_t;
 typedef struct wps_config	wpsc_t;
-typedef struct wps_data		wpsd_t;
+typedef struct wps_data		wpsd_t;  
 typedef struct wps_registrar_config wpsr_t;
 typedef struct wps_context	wctx_t;
 typedef struct wpabuf		wpab_t;
@@ -196,7 +196,7 @@ struct global {
 	int16	*pin1;
 	int16	*pin2;
 	char    pixie;
-
+	
 };
 
 
@@ -234,7 +234,7 @@ char usage[] =
 "      -o, --outfile file     : Output file for messages          [stdout]\n"
 "      -p, --pin N            : Starting pin number (7 or 8 digits) [Auto]\n"
 "      -s, --source macaddr   : Source (hardware) MAC address      [Probe]\n"
-"      -v, --verbosity N      : Verbosity level 1-4, 1 is quietest     [4]\n"
+"      -v, --verbosity N      : Verbosity level 1-4, 1 is quietest     [3]\n"
 "      -w, --workdir path     : Location of pin/session files  [~/.bully/]\n"
 "      -5, --5ghz             : Hop on 5GHz a/n default channel list  [No]\n"
 "      -B, --bruteforce       : Bruteforce the WPS pin checksum digit [No]\n"
@@ -245,7 +245,7 @@ char usage[] =
 "  Advanced arguments:\n"
 "\n"
 "      -d, --pixiewps         : Attempt to use pixiewps               [No]\n"
-"      -g, --genpin N         : Pin Generator [1] D-Link [2] Belkin    [0]\n"
+/*"      -g, --genpin N         : Pin Generator [1] D-Link [2] Belkin    [0]\n"*/
 "      -a, --acktime N        : Deprecated/ignored                  [Auto]\n"
 "      -r, --retries N        : Resend packets N times when not acked  [2]\n"
 "      -m, --m13time N        : Deprecated/ignored                  [Auto]\n"

@@ -248,17 +248,19 @@ int get_start(struct global *G)
 	strcat(oldf, "/");
 	strcat(oldf, G->ssids);
 	strcat(oldf, ".run");
-
+	
 
 	if ((rf = fopen(oldf, "r")) != NULL)
 		rename(oldf, G->runf);
 	free(oldf);
 
 	if ((rf = fopen(G->runf, "r")) == NULL) {
-
+		
 		if ((rf = fopen(G->runf, "w")) != NULL) {
-			if (!(op_gen_pin == 0)) {
-				fprintf(rf, "# DO NOT MODIFY CONTENTS OF THIS FILE\n# '%s' (%s)\n", G->essid, G->ssids);
+			if (!(op_gen_pin == 0))
+			{
+
+				fprintf(rf, "# DO NOT MODIFY CONTENTS OF THIS FILE\n# '%s' (%s)\n", G->essid, G->ssids);	
 				fclose(rf);
 			};
 		};
@@ -310,4 +312,3 @@ int get_start(struct global *G)
 
 	return index;
 };
-

@@ -13,6 +13,7 @@
  */
 
 #include "includes.h"
+
 #include "common.h"
 #include "crypto/aes_wrap.h"
 #include "crypto/crypto.h"
@@ -21,6 +22,7 @@
 #include "crypto/sha256.h"
 #include "wps_i.h"
 #include "wps_dev_attr.h"
+
 #include "pixie.h"
 
 
@@ -133,12 +135,13 @@ int wps_derive_keys(struct wps_data *wps)
 			}
 		}
 		free(get_auth);
-		if ( debug_level <= 3 ) {
+		if ( debug_level <= 3 )
+		{
 			printf("[P] Authkey received.\n");
 		} else {
 			printf("[P] Authkey: %s\n", pixie_authkey);
 		}
-	}
+	}	
 
 	wpa_hexdump_key(MSG_DEBUG, "WPS: AuthKey",
 			wps->authkey, WPS_AUTHKEY_LEN);

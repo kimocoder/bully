@@ -252,14 +252,7 @@ typedef struct ie_tag tag_t;
 
 struct ie_vtag {
 	uint16		id;
-#define TAG_WPS_CONF_M	"\x10\x08"
-#define TAG_WPS_D_NAME  "\x10\x11"
-#define TAG_WPS_PASSWD	"\x10\x12"
-#define TAG_WPS_MANU	"\x10\x21"
-#define TAG_WPS_M_NAME	"\x10\x23"
-#define TAG_WPS_M_NUM	"\x10\x24"
-#define TAG_WPS_BANDS	"\x10\x3c"
-#define TAG_WPS_SERIAL	"\x10\x42"
+#define	TAG_WPS_VERSION	"\x10\x4A"
 #define	TAG_WPS_STATE	"\x10\x44"
 #define TAG_WPS_UUID_E	"\x10\x47"
 #define TAG_WPS_V_EXT	"\x10\x49"
@@ -268,7 +261,7 @@ struct ie_vtag {
 #define	TAG_WPS_APLOCK	"\x10\x57"
 	uint16		len;
 	uint8		data[];
-#define	TAG_WPS_V2		0
+#define	TAG_WPS_CONFIG	2
 #define	TAG_WPS_LOCKED	1
 #define	TAG_WPS_CONFIG	2
 };
@@ -392,4 +385,3 @@ typedef struct wfa_frame wfa_t;
 
 #pragma pack(pop)
 #endif /* _80211_h */
-
