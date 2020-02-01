@@ -14,7 +14,7 @@ tested against access points from numerous vendors, and with differing configura
 
 # DEPENDENCIES
 
-Bully requires 'libpcap'. It uses WPS functionality written by Jouni Malinen; that source code
+Bully requires 'libpcap-dev'. It uses WPS functionality written by Jouni Malinen; that source code
 is included in this repro for simplicity, as are libcrypto and several other sources that provide needed
 functionality.
 
@@ -26,8 +26,6 @@ functionality.
 
 Bully can be built and installed by running:
 
-        ~/bully$ apt-get update
-        ~/bully$ apt-get install libpcap-dev
 	~/bully$ cd src
 	~/bully/src$ make
 	~/bully/src$ make install
@@ -103,6 +101,7 @@ Advanced arguments:
   -M, --m57nack          : M5/M7 timeouts treated as WSC_NACK's  [No]
   -N, --nofcs            : Packets don't contain the FCS field [Auto]
   -P, --probe            : Use probe request for nonbeaconing AP [No]
+  -Q, --wpsinfo          : Use probe request to gather WPS info  [No]
   -R, --radiotap         : Assume radiotap headers are present [Auto]
   -W, --windows7         : Masquerade as a Windows 7 registrar   [No]
   -Z, --suppress         : Suppress packet throttling algorithm  [No]
@@ -278,6 +277,11 @@ Advanced arguments:
 
 		Bully uses beacons to examine the WPS state of an access point. For nonbeaconing AP's, send
 		directed probe requests and use the resulting probe responses instead. Requires --essid.
+
+      -Q, --wpsinfo
+
+		Gather WPS info by using probe request(s) against a target.
+		May reveal chipset manufacturer, WPS version and other geeky stats.
 
       -R, --radiotap
 
