@@ -48,11 +48,11 @@
 #include <pwd.h>
 
 #ifdef HAVE_LUA
-# include <lua.h>
-# include <lualib.h>
-# include <lauxlib.h>
-# include "pingen.h"
-# include "luaclib.h"
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+#include "pingen.h"
+#include "luaclib.h"
 #endif
 
 #define	CONFIG_NO_STDOUT_DEBUG	1
@@ -989,7 +989,7 @@ restart:
 	result = DEORDIS;
 
 	while (!ctrlc) {
-	
+
 		if (run_pixiewps == 2) {
 		/* Creating pixiewps command */
 			char *cmd_pixie;
@@ -1011,11 +1011,11 @@ restart:
 			strcat(cmd_pixie," -v 1 --force");
 
 			FILE *fpixe;
-				
+
 			fpixe = popen(cmd_pixie, "r");
 			char *aux_pixie_pin;
 			int i=0;
-		
+
 			printf("[+] Running pixiewps with the information, wait ...\n");
 			if ( debug_level == 4 )
 			{
@@ -1023,7 +1023,7 @@ restart:
 			};
 			char *pixie_output;
 			pixie_output=malloc(100 * sizeof(char));
-			while (fgets(pixie_output, 100, fpixe) != NULL) 
+			while (fgets(pixie_output, 100, fpixe) != NULL)
 			{
 				aux_pixie_pin = strstr(pixie_output,"WPS pin not found");
 				if(aux_pixie_pin != NULL)
@@ -1032,14 +1032,14 @@ restart:
 					free(cmd_pixie);
 					break;
 				};
-					
+
 				aux_pixie_pin = strstr(pixie_output,"WPS pin:");
 				if(aux_pixie_pin != NULL)
 				{
 					//here will get the pin
 					//a slightly better way to locate the pin
 					//thx offensive-security by attention
-						
+
 					for(i=0;i<strlen(aux_pixie_pin);i++)
 					{
 						if(isdigit(aux_pixie_pin[i]))
@@ -1181,7 +1181,7 @@ restart:
 		send_packet(G, deauth, sizeof(deauth)-1, 0);
 		send_packet(G, deauth, sizeof(deauth)-1, 0);
 	};
-	
+
 	pcap_close(G->pfd);
 
 	if (result == SUCCESS)
