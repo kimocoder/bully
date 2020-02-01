@@ -1,6 +1,8 @@
 /*
     bully - retrieve WPA/WPA2 passphrase from a WPS-enabled AP
 
+    Copyright (C) 2020  kimocoder     <christian@aircrack-ng.org>
+    Copyright (C) 2017  wiire         <wi7ire@gmail.com>
     Copyright (C) 2012  Brian Purcell <purcell.briand@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
@@ -159,8 +161,12 @@ void init_pins(struct global *G)
 		if ((pf = fopen(G->pinf, "w")) == 0) {
 			vprint("[X] Couldn't create pin file '%s'\n", G->pinf);
 			exit(8);
-		}; 
+		};
 		vprint("[!] Creating new randomized pin file '%s'\n", G->pinf);
+#ifdef HAVE_LUA
+		if (G->luavm)
+			vprint("[!] Using lua script '%s'\n", G->luaf);
+#endif
 
 		for (i=0; i<10000; i++)	G->pin1[i] = i;
 		for (i=0; i<10000; i++)
@@ -179,6 +185,59 @@ void init_pins(struct global *G)
 				G->pin2[j] = G->pin2[i];
 				G->pin2[i] = t;
 			};
+
+#ifdef HAVE_LUA
+			if (G->luaf && G->luavm) {
+				int top, numres, numvalid = 0;
+				uint32 *pins;
+
+				lua_getglobal(G->luavm, "main");
+				top = lua_gettop(G->luavm);
+				lua_pcall(G->luavm, 0, LUA_MULTRET, 0);
+				numres = lua_gettop(G->luavm) - top + 1;
+
+				pins = malloc(sizeof(uint32) * numres);
+				if (pins == 0)
+					goto pin_err;
+
+				while (numres--) {
+					if (!lua_isnumber(G->luavm, -1)) {
+						lua_pop(G->luavm, 1);
+						continue;
+					};
+					pins[numvalid] = lua_tonumber(G->luavm, -1);
+					lua_pop(G->luavm, 1);
+					numvalid++;
+				};
+
+				vprint("[!] List of generated pins '");
+				for (i = numvalid; i--; ) {
+					vprint("%u", pins[i]);
+					if (i != 0)
+						vprint(", ");
+				}
+				vprint("'\n");
+
+				for (i = numvalid; i--; ) {
+					int fhalf = pins[i] / 10000;
+					for (j = 0; j < 10000; j++) {
+						if (G->pin1[j] == fhalf) {
+							G->pin1[j] = G->pin1[0 + numvalid - i - 1];
+							G->pin1[0 + numvalid - i - 1] = fhalf;
+						};
+					};
+
+					// TODO issue with 2 identical halves?
+					int shalf = pins[i] % 10000;
+					for (j = 0; j < 10000; j++) {
+						if (G->pin2[j] == shalf) {
+							G->pin2[j] = G->pin2[1000 + numvalid - i - 1];
+							G->pin2[1000 + numvalid - i - 1] = shalf;
+						};
+					};
+				};
+			};
+#endif
 
 		if ((f = calloc(sizeof(uint8), 1000)) == 0)
 			goto pin_err;

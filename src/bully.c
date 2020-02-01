@@ -47,6 +47,13 @@
 #include <limits.h>
 #include <pwd.h>
 
+#ifdef HAVE_LUA
+# include <lua.h>
+# include <lualib.h>
+# include <lauxlib.h>
+# include "pingen.h"
+# include "luaclib.h"
+#endif
 
 #define	CONFIG_NO_STDOUT_DEBUG	1
 #define	CONFIG_INTERNAL_LIBTOMMATH
@@ -204,6 +211,9 @@ int main(int argc, char *argv[])
 			{"pin",		1,	0,	'p'},
 			{"retries",	1,	0,	'r'},
 			{"source",	1,	0,	's'},
+#ifdef HAVE_LUA
+			{"lua",		1,	0,	'u'},
+#endif
 			{"timeout",	1,	0,	't'},
 			{"verbosity",	1,	0,	'v'},
 			{"workdir",	1,	0,	'w'},
@@ -231,8 +241,12 @@ int main(int argc, char *argv[])
 			{0,		0,	0,	 0 }
 		};
 
-		int option = getopt_long( argc, argv, "a:b:c:de:g:i:l:m:o:p:r:s:t:v:w:1:2:5ABCDEFLMNPQRSTVWZh",
-					long_options, &option_index );
+		int option = getopt_long(argc, argv, "a:b:c:de:g:i:l:m:o:p:r:s:t:"
+#ifdef HAVE_LUA
+				"u:"
+#endif
+				"v:w:1:2:5ABCDEFLMNPQRSTVWZh",
+				long_options, &option_index);
 
 		if( option < 0 ) break;
 
@@ -316,6 +330,23 @@ int main(int argc, char *argv[])
 				};
 				printf("Deprecated option --timeout (-t) ignored\n");
 				break;
+#ifdef HAVE_LUA
+			case 'u': {
+				const unsigned int luap = strlen(optarg);
+				if (stat(optarg, &wstat) || !S_ISREG(wstat.st_mode)
+						|| luap < 5 || strcmp(&optarg[luap - 4], ".lua")) {
+					snprintf(G->error, 256, "Bad lua scripting file -- %s\n", optarg);
+					goto usage_err;
+				};
+				result = wstat.st_mode | (wstat.st_mode >> 4);
+				if ((result & S_IRWXG) != S_IRWXG) {
+					snprintf(G->error, 256, "Permission denied -- %s\n", optarg);
+					goto usage_err;
+				};
+				G->luaf = optarg;
+			}
+			break;
+#endif
 			case 'v' :
 				if (get_int(optarg, &G->verbose) != 0 || G->verbose < 1 || 4 < G->verbose) {
 					snprintf(G->error, 256, "Bad verbosity level -- %s\n", optarg);
@@ -468,6 +499,23 @@ int main(int argc, char *argv[])
 		G->error = "You must specify --essid for the AP when using --probe\n";
 		goto usage_err;
 	};
+
+#ifdef HAVE_LUA
+	if (G->luaf) {
+		if ((G->luavm = basic_env()) == 0) {
+			fprintf(stderr, "Unable to create Lua environment\n");
+			return 9;
+		}
+		luaL_requiref(G->luavm, "wps", luaopen_wpslib, 1);
+		luaL_requiref(G->luavm, "algorithm", luaopen_algolib, 1);
+		if (luaL_dofile(G->luavm, G->luaf) != LUA_OK) {
+			snprintf(G->error, 256, "Error loading lua script -- %s\n", lua_tostring(G->luavm, -1));
+			lua_close(G->luavm);
+			goto usage_err;
+		};
+		G->wpsinfo = 1; /* Force data gathering for algorithms */
+	};
+#endif
 
 	if (memcmp(G->hwmac, NULL_MAC, 6) == 0)
 		if (get_hwmac(G->ifname, G->hwmac)) {
@@ -854,6 +902,27 @@ ap_probe:
 		memcpy(G->wdata->wps->dev.pri_dev_type, W7_DEVICE_TYPE, 8);
 		memcpy(&G->wdata->wps->dev.os_version, W7_OS_VERSION, 4);
 	};
+
+#ifdef HAVE_LUA
+	if (G->luavm) {
+		lua_newtable(G->luavm);
+		for (int i = 0; i < 6; i++) {
+			lua_pushinteger(G->luavm, G->bssid[i]);
+			lua_rawseti(G->luavm, -2, i + 1);
+		}
+		lua_setglobal(G->luavm, "tbl_bssid");
+		lua_pushstring(G->luavm, hex(G->bssid, 6));
+		lua_setglobal(G->luavm, "str_bssid");
+		lua_pushstring(G->luavm, G->essid);
+		lua_setglobal(G->luavm, "str_essid");
+		lua_pushnumber(G->luavm, (wps_info.version >> 4) + (double)(wps_info.version & 0x0f) / 10);
+		lua_setglobal(G->luavm, "wps_version");
+		if (wps_info.serial_number) {
+			lua_pushstring(G->luavm, wps_info.serial_number);
+			lua_setglobal(G->luavm, "str_wps_serial");
+		}
+	}
+#endif
 
 	{ /* Two files: *.pins and *.run */
 		size_t wsize = strlen(G->warpath);

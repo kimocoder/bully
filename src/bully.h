@@ -26,7 +26,7 @@
 
 typedef struct pcap_pkthdr	phdr_t;
 typedef struct wps_config	wpsc_t;
-typedef struct wps_data		wpsd_t;  
+typedef struct wps_data		wpsd_t;
 typedef struct wps_registrar_config wpsr_t;
 typedef struct wps_context	wctx_t;
 typedef struct wpabuf		wpab_t;
@@ -136,6 +136,10 @@ struct global {
 	uint8	hwmac[6];
 	char	*hop;
 	char	*warpath;
+#ifdef HAVE_LUA
+	char *luaf;
+	lua_State *luavm;
+#endif
 	char	*runf;
 	char	*pinf;
 	char	schan[8];
@@ -196,7 +200,7 @@ struct global {
 	int16	*pin1;
 	int16	*pin2;
 	char    pixie;
-	
+
 };
 
 
@@ -212,7 +216,7 @@ struct global {
 char usage[] =
 
 "\n"
-"  bully v1.3\n"
+"  bully v1.4\n"
 "  the fork that actually works!\n"
 "  maintained by kimocoder - https://twitter.com/kimocoder\n"
 "\n"
@@ -234,6 +238,9 @@ char usage[] =
 "      -o, --outfile file     : Output file for messages          [stdout]\n"
 "      -p, --pin N            : Starting pin number (7 or 8 digits) [Auto]\n"
 "      -s, --source macaddr   : Source (hardware) MAC address      [Probe]\n"
+#ifdef HAVE_LUA
+"      -u, --lua              : Lua script file                           \n"
+#endif
 "      -v, --verbosity N      : Verbosity level 1-4, 1 is quietest     [3]\n"
 "      -w, --workdir path     : Location of pin/session files  [~/.bully/]\n"
 "      -5, --5ghz             : Hop on 5GHz a/n default channel list  [No]\n"
