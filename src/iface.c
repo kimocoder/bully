@@ -55,7 +55,7 @@ int set_chanx(struct global *G, int chanx)
 			};
 		};
 	} else {
-		if (ioctl(sock, SIOCGIWFREQ, &wrq) < 0) {
+		if ((result = ioctl(sock, SIOCGIWFREQ, &wrq)) < 0) {
 			vprint("[!] ioctl(SIOCGIWFREQ) on '%s' failed with '%d'\n", G->ifname, result);
 		} else {
 			freq = wrq.u.freq.m;
