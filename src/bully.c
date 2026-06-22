@@ -55,6 +55,16 @@
 #include "luaclib.h"
 #endif
 
+/* The hostapd/wpa_supplicant sources below are vendored upstream code that
+   bully compiles directly. They build cleanly but carry benign upstream-style
+   warnings (unused interface parameters, timeout handlers that bully stubs out
+   via the eloop macros, etc.). Suppress only those categories for the vendored
+   block so the project's own code can stay under full -Wall -Wextra. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#pragma GCC diagnostic ignored "-Wunused-function"
+
 #define	CONFIG_NO_STDOUT_DEBUG	1
 #define	CONFIG_INTERNAL_LIBTOMMATH
 #include "tls/bignum.c"
@@ -88,6 +98,8 @@
 #include "wps/wps_attr_process.c"
 #include "wps/wps_attr_build.c"
 
+#pragma GCC diagnostic pop	/* end of vendored upstream sources */
+
 #include "bswap.h"
 #include "80211.h"
 #include "frame.h"
@@ -106,6 +118,9 @@ void sigint_h(int signal) { signm = signal; ctrlc = 1; };
 #include "crc32.c"
 #include "80211.c"
 #include "frame.c"
+#ifdef HAVE_NL80211
+#include "nl80211.c"
+#endif
 #include "iface.c"
 
 #include "version.h"
@@ -114,7 +129,7 @@ int main(int argc, char *argv[])
 {
 	int	k, result, nocheck = 0, fcs_count = 0, to_count = 0;
 
-	char	essids[33] = {0}, *essid = essids;
+	char	essids[33] = {0};
 	char	bssids[18] = {0};
 	char	hwmacs[18] = {0};
 
@@ -137,7 +152,7 @@ int main(int argc, char *argv[])
 	srandom(time(NULL));
 
 	struct global *G;
-	if (G = calloc(1, sizeof(struct global))) {
+	if ((G = calloc(1, sizeof(struct global)))) {
 
 		G->phdr = calloc(1, sizeof(struct pcap_pkthdr));
 		if (!G->phdr)
@@ -177,11 +192,15 @@ int main(int argc, char *argv[])
 		G->k2delay = 5;
 		G->k2step = 1;
 		G->pinstart = G->pindex = -1;
-		op_gen_pin = 0;
 		//Pixie
 
-		char *temp = getpwuid(getuid())->pw_dir;
+		struct passwd *pw = getpwuid(getuid());
+		char *temp = (pw && pw->pw_dir) ? pw->pw_dir : getenv("HOME");
+		if (!temp)
+			temp = ".";
 		G->warpath = malloc(strlen(temp) + strlen(EXE_NAME) + 3);
+		if (!G->warpath)
+			goto mem_err;
 		strcpy(G->warpath, temp);
 		strcat(G->warpath, "/.");
 		strcat(G->warpath, EXE_NAME);
@@ -203,7 +222,6 @@ int main(int argc, char *argv[])
 			{"channel",	1,	0,	'c'},
 			{"pixiewps",	0,	0,	'd'},
 			{"essid",	1,	0,	'e'},
-			{"genpin",	0,	0,	'g'},
 			{"index",	1,	0,	'i'},
 			{"lockwait",	1,	0,	'l'},
 			{"m13time",	1,	0,	'm'},
@@ -241,7 +259,7 @@ int main(int argc, char *argv[])
 			{0,		0,	0,	 0 }
 		};
 
-		int option = getopt_long(argc, argv, "a:b:c:de:g:i:l:m:o:p:r:s:t:"
+		int option = getopt_long(argc, argv, "a:b:c:de:i:l:m:o:p:r:s:t:"
 #ifdef HAVE_LUA
 				"u:"
 #endif
@@ -271,11 +289,11 @@ int main(int argc, char *argv[])
 				G->hop = optarg;
 				break;
 			case 'e' :
+				if (strlen(optarg) > 32) {
+					snprintf(G->error, 256, "ESSID too long, max 32 chars -- %s\n", optarg);
+					goto usage_err;
+				};
 				G->essid = optarg;
-				break;
-
-			case 'g' :
-				get_int(optarg, &op_gen_pin);
 				break;
 
 			case 'i' :
@@ -370,14 +388,14 @@ int main(int argc, char *argv[])
 				break;
 			case '1' :
 				if (get_int(optarg, &G->k1delay) != 0)
-					if (sscanf(optarg, "%d,%d%s", &G->k1delay, &G->k1step, G->error) != 2) {
+					if (sscanf(optarg, "%d,%d%255s", &G->k1delay, &G->k1step, G->error) != 2) {
 						snprintf(G->error, 256, "Bad recurring delay -- %s\n", optarg);
 						goto usage_err;
 					};
 				break;
 			case '2' :
 				if (get_int(optarg, &G->k2delay) != 0)
-					if (sscanf(optarg, "%d,%d%s", &G->k2delay, &G->k2step, G->error) != 2) {
+					if (sscanf(optarg, "%d,%d%255s", &G->k2delay, &G->k2step, G->error) != 2) {
 						snprintf(G->error, 256, "Bad recurring delay -- %s\n", optarg);
 						goto usage_err;
 					};
@@ -488,7 +506,7 @@ int main(int argc, char *argv[])
 	G->ifname = argv[optind];
 
 	memset(p_iface,0,sizeof(p_iface));
-	strcat(p_iface, G->ifname);
+	strncat(p_iface, G->ifname, sizeof(p_iface)-1);
 
 	if (G->essid == 0 && G->ssids == 0) {
 		G->error = "Please specify either --bssid or --essid for the access point\n";
@@ -588,7 +606,13 @@ int main(int argc, char *argv[])
 		if (result == SUCCESS) {
 			tag = (tag_t*)(G->inp[F_PAY].data + BFP_SIZE);
 			tlen = G->inp[F_PAY].size - BFP_SIZE;
-			if (G->essid)
+			/* The first IE must be the SSID and must fit within the captured
+			   payload and our buffer; a malformed beacon must never overflow it */
+			if (tlen < (int)TAG_SIZE || tag->id != TAG_SSID
+					|| tag->len > tlen - (int)TAG_SIZE
+					|| tag->len > (int)sizeof(essids) - 1)
+				goto ap_beacon;
+			if (G->essid) {
 				if (strlen(G->essid) != tag->len)
 					goto ap_beacon;
 				else
@@ -600,7 +624,9 @@ int main(int argc, char *argv[])
 							break;
 						} else
 							goto ap_beacon;
+			};
 			memcpy(essids,tag->data,tag->len);
+			essids[tag->len] = '\0';
 			G->essid = essids;
 			break;
 		};
@@ -613,7 +639,7 @@ int main(int argc, char *argv[])
 			continue;
 		};
 
-		if (result == TIMEOUT)
+		if (result == TIMEOUT) {
 			if (!G->fixed) {
 				G->chanx = next_chan(G);
 				if (G->chanx == G->start) {
@@ -624,6 +650,7 @@ int main(int argc, char *argv[])
 			} else
 				if (++to_count < 3)
 					continue;
+		};
 
 		vprint("[X] Unable to get a beacon from the AP, possible causes are\n");
 		vprint("[.]    an invalid --bssid or -essid was provided,\n");
@@ -643,6 +670,10 @@ int main(int argc, char *argv[])
 	G->ssids = fmt_mac(bssids, G->bssid);
 	vprint("[+] Got beacon for '%s' (%s)\n", G->essid, G->ssids);
 	G->nocheck = nocheck;
+
+	/* Now that the target BSSID is locked, push a coarse filter into the
+	   kernel so it drops unrelated traffic before next_packet() sees it */
+	set_bpf_filter(G);
 
 	mac = (mac_t*)(&authrq[RTH_SIZE]);
 	memcpy(mac->adr1.addr, G->bssid, 6);
@@ -689,12 +720,13 @@ int main(int argc, char *argv[])
 	if ((tags[tn] = find_tag(tag, tlen, TAG_RATE, 0, NULL, 0)) != NULL)
 		tn++;
 	if ((tags[tn] = find_tag(tag, tlen, TAG_CHAN, 0, NULL, 0)) != NULL) {
-		if (G->chans[G->chanx] != tags[tn]->data[0])
+		if (G->chans[G->chanx] != tags[tn]->data[0]) {
 			if (!G->fixed)
 				G->chanx = set_chan(G, tags[tn]->data[0]);
 			else
 				vprint("[!] The access point is on channel '%d', not '%s'\n",
 							tags[tn]->data[0], G->schan);
+		};
 		tn++;
 	};
 	if ((tags[tn] = find_tag(tag, tlen, TAG_XRAT, 0, NULL, 0)) != NULL)
@@ -727,10 +759,10 @@ int main(int argc, char *argv[])
 		vprint("[!] Beacon IE indicates WPS is locked\n");
 	};
 
-	if (vt = find_vtag(vtag, vlen, TAG_WPS_VERSION, 1)) {
+	if ((vt = find_vtag(vtag, vlen, TAG_WPS_VERSION, 1))) {
 		wps_info.version = vt->data[0];
 	};
-	if (vt = find_vtag(vtag, vlen, TAG_WPS_V_EXT, 2)) {
+	if ((vt = find_vtag(vtag, vlen, TAG_WPS_V_EXT, 2))) {
 		if (memcmp(vt->data, WFA_VENDOR, 3) == 0) {
 			uint8 *v2 = (uint8*)(vt->data + 3);
 			int wfa_len = be16toh(vt->len);
@@ -785,12 +817,12 @@ ap_probe:
 		if (result == SUCCESS) {
 			vprint("[+] Got probe response from '%s' (%s)\n", G->essid, G->ssids);
 
-			if (tag = find_tag(tag, tlen, TAG_VEND, 0, MS_WPS_ID, 4)) {
+			if ((tag = find_tag(tag, tlen, TAG_VEND, 0, MS_WPS_ID, 4))) {
 				vtag = (vtag_t*)&tag->data[4];
 				vlen = tag->len - 4;
 				vtag_t *init_vtag = vtag;
 
-				if (vtag = find_vtag(vtag, vlen, TAG_WPS_PASSWD, 2)) {
+				if ((vtag = find_vtag(vtag, vlen, TAG_WPS_PASSWD, 2))) {
 					wps_info.passw_id = be16toh(*((uint16_t*)(&vtag->data[0])));
 					wps_info.passw_id_p = TRUE;
 					if (wps_info.passw_id != DEV_PW_DEFAULT) {
@@ -802,50 +834,60 @@ ap_probe:
 				else {
 					vprint("[!] Device Password ID is not present in probe response\n");
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_CONF_M, 2)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_CONF_M, 2))) {
 					char c_buff[60];
 					wps_info.config_methods = be16toh(*((uint16_t*)(&vtag->data[0])));
-					if (wps_info.config_methods & WPS_CONF_LABEL == 0)
+					if ((wps_info.config_methods & WPS_CONF_LABEL) == 0)
 						vprint("[!] Method Label doesn't seem to be supported\n");
 					vprint("[!] Configuration methods '%s'\n",
 							build_conf_methods_string(wps_info.config_methods, c_buff));
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_D_TYPE, 8)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_D_TYPE, 8))) {
 					char c_buff[60];
 					wps_info.category  = be16toh(*((uint16_t*)(&vtag->data[0])));
 					wps_info.subcategory = be16toh(*((uint16_t*)(&vtag->data[6])));
 					vprint("[!] Device type '%s'\n",
 							build_dev_type_string(wps_info.category, wps_info.subcategory, c_buff));
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_UUID_E, 16)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_UUID_E, 16))) {
 					memcpy(wps_info.uuid, vtag->data, 16);
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_D_NAME, 0)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_D_NAME, 0))) {
 					int tag_size = be16toh(vtag->len);
+					if (tag_size > (int)sizeof(wps_info.device_name) - 1)
+						tag_size = sizeof(wps_info.device_name) - 1;
 					memcpy(wps_info.device_name, vtag->data, tag_size);
 					wps_info.device_name[tag_size] = '\0';
 					vprint("[!] Device name '%s'\n", wps_info.device_name);
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_MANU, 0)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_MANU, 0))) {
 					int tag_size = be16toh(vtag->len);
+					if (tag_size > (int)sizeof(wps_info.manufacturer) - 1)
+						tag_size = sizeof(wps_info.manufacturer) - 1;
 					memcpy(wps_info.manufacturer, vtag->data, tag_size);
 					wps_info.manufacturer[tag_size] = '\0';
 					vprint("[!] Manufacturer '%s'\n", wps_info.manufacturer);
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_M_NAME, 0)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_M_NAME, 0))) {
 					int tag_size = be16toh(vtag->len);
+					if (tag_size > (int)sizeof(wps_info.model_name) - 1)
+						tag_size = sizeof(wps_info.model_name) - 1;
 					memcpy(wps_info.model_name, vtag->data, tag_size);
 					wps_info.model_name[tag_size] = '\0';
 					vprint("[!] Model name '%s'\n", wps_info.model_name);
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_M_NUM, 0)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_M_NUM, 0))) {
 					int tag_size = be16toh(vtag->len);
+					if (tag_size > (int)sizeof(wps_info.model_number) - 1)
+						tag_size = sizeof(wps_info.model_number) - 1;
 					memcpy(wps_info.model_number, vtag->data, tag_size);
 					wps_info.model_number[tag_size] = '\0';
 					vprint("[!] Model number '%s'\n", wps_info.model_number);
 				};
-				if (vtag = find_vtag(init_vtag, vlen, TAG_WPS_SERIAL, 0)) {
+				if ((vtag = find_vtag(init_vtag, vlen, TAG_WPS_SERIAL, 0))) {
 					int tag_size = be16toh(vtag->len);
+					if (tag_size > (int)sizeof(wps_info.serial_number) - 1)
+						tag_size = sizeof(wps_info.serial_number) - 1;
 					memcpy(wps_info.serial_number, vtag->data, tag_size);
 					wps_info.serial_number[tag_size] = '\0';
 					vprint("[!] Serial number '%s'\n", wps_info.serial_number);
@@ -865,17 +907,17 @@ ap_probe:
 	G->eaplnx = (uint8*)&((eap_t*)G->inp[F_EAP].data)->len - &wfamsg[0];
 	G->wfaopx = (uint8*)&((wfa_t*)G->inp[F_WFA].data)->op - &wfamsg[0];
 
-	wpsc_t *wconf = calloc(sizeof(wpsc_t),1);
+	wpsc_t *wconf = calloc(1, sizeof(wpsc_t));
 	if (!wconf)
 		goto mem_err;
 	wconf->registrar = TRUE;
 
-	wpsr_t *wregc = calloc(sizeof(wpsr_t),1);
+	wpsr_t *wregc = calloc(1, sizeof(wpsr_t));
 	if (!wregc)
 		goto mem_err;
 	wregc->disable_auto_conf = TRUE;
 
-	wconf->wps = calloc(sizeof(wctx_t),1);
+	wconf->wps = calloc(1, sizeof(wctx_t));
 	if (!wconf->wps)
 		goto mem_err;
 
@@ -917,7 +959,7 @@ ap_probe:
 		lua_setglobal(G->luavm, "str_essid");
 		lua_pushnumber(G->luavm, (wps_info.version >> 4) + (double)(wps_info.version & 0x0f) / 10);
 		lua_setglobal(G->luavm, "wps_version");
-		if (wps_info.serial_number) {
+		if (wps_info.serial_number[0]) {
 			lua_pushstring(G->luavm, wps_info.serial_number);
 			lua_setglobal(G->luavm, "str_wps_serial");
 		}
@@ -955,7 +997,6 @@ ap_probe:
 	sigaction(SIGPIPE, &sigact, 0);
 	sigaction(SIGALRM, &sigact, 0);
 	sigaction(SIGTERM, &sigact, 0);
-	sigaction(SIGCHLD, &sigact, 0);
 
 restart:
 	G->restart = 0;
@@ -991,73 +1032,88 @@ restart:
 	while (!ctrlc) {
 
 		if (run_pixiewps == 2) {
-		/* Creating pixiewps command */
-			char *cmd_pixie;
-			cmd_pixie = malloc( 2520 * sizeof(char) );
-			strcpy(cmd_pixie,"pixiewps -e ");
-			strncat(cmd_pixie,pixie_pke, 1000);
-			strcat(cmd_pixie," -r ");
-			strncat(cmd_pixie,pixie_pkr, 1000);
-			strcat(cmd_pixie," -s ");
-			strncat(cmd_pixie,pixie_ehash1,100);
-			strcat(cmd_pixie," -z ");
-			strncat(cmd_pixie,pixie_ehash2,100);
-			strcat(cmd_pixie," -a ");
-			strncat(cmd_pixie,pixie_authkey,100);
-			strcat(cmd_pixie," -n ");
-			strncat(cmd_pixie,pixie_enonce,100);
-			strcat(cmd_pixie," -m ");
-			strncat(cmd_pixie,pixie_rnonce,100);
-			strcat(cmd_pixie," -v 1 --force");
-
-			FILE *fpixe;
-
-			fpixe = popen(cmd_pixie, "r");
-			char *aux_pixie_pin;
-			int i=0;
+		/* Run pixiewps directly via execvp (no shell). This avoids building a
+		   command string from network-derived values, eliminating both the
+		   fixed-buffer overflow and any shell-injection exposure. */
+			char *pixie_argv[] = {
+				"pixiewps",
+				"-e", pixie_pke,
+				"-r", pixie_pkr,
+				"-s", pixie_ehash1,
+				"-z", pixie_ehash2,
+				"-a", pixie_authkey,
+				"-n", pixie_enonce,
+				"-m", pixie_rnonce,
+				"-v", "1", "--force",
+				NULL
+			};
+			int pipefd[2];
 
 			printf("[+] Running pixiewps with the information, wait ...\n");
-			if ( debug_level == 4 )
-			{
-				printf("Cmd : %s\n",cmd_pixie);
+			if (debug_level == 4) {
+				printf("Cmd : pixiewps -e %s -r %s -s %s -z %s -a %s -n %s -m %s -v 1 --force\n",
+					pixie_pke, pixie_pkr, pixie_ehash1, pixie_ehash2,
+					pixie_authkey, pixie_enonce, pixie_rnonce);
 			};
-			char *pixie_output;
-			pixie_output=malloc(100 * sizeof(char));
-			while (fgets(pixie_output, 100, fpixe) != NULL)
-			{
-				aux_pixie_pin = strstr(pixie_output,"WPS pin not found");
-				if(aux_pixie_pin != NULL)
-				{
-					printf("[Pixie-Dust] WPS pin not found\n");
-					free(cmd_pixie);
-					break;
-				};
 
-				aux_pixie_pin = strstr(pixie_output,"WPS pin:");
-				if(aux_pixie_pin != NULL)
-				{
-					//here will get the pin
-					//a slightly better way to locate the pin
-					//thx offensive-security by attention
-
-					for(i=0;i<strlen(aux_pixie_pin);i++)
-					{
-						if(isdigit(aux_pixie_pin[i]))
-						{
-							strncpy(pinstr, aux_pixie_pin + i, 8);
-							run_pixiewps = 3;
-							free(cmd_pixie);
-							break;
+			if (pipe(pipefd) != 0) {
+				fprintf(stderr, "[X] Unable to create pipe for pixiewps\n");
+			} else {
+				pid_t pid = fork();
+				if (pid < 0) {
+					fprintf(stderr, "[X] Unable to fork for pixiewps\n");
+					close(pipefd[0]);
+					close(pipefd[1]);
+				} else if (pid == 0) {
+					/* Child: redirect stdout to the pipe, then exec */
+					dup2(pipefd[1], STDOUT_FILENO);
+					close(pipefd[0]);
+					close(pipefd[1]);
+					execvp("pixiewps", pixie_argv);
+					fprintf(stderr, "[X] Unable to execute 'pixiewps' (is it installed?)\n");
+					_exit(127);
+				} else {
+					/* Parent: read the child's output */
+					close(pipefd[1]);
+					FILE *fpixe = fdopen(pipefd[0], "r");
+					char pixie_output[100];
+					char *aux_pixie_pin;
+					int i;
+					if (fpixe) {
+						while (fgets(pixie_output, sizeof(pixie_output), fpixe) != NULL) {
+							if (strstr(pixie_output, "WPS pin not found") != NULL) {
+								printf("[Pixie-Dust] WPS pin not found\n");
+								break;
+							};
+							aux_pixie_pin = strstr(pixie_output, "WPS pin:");
+							if (aux_pixie_pin != NULL) {
+								for (i = 0; aux_pixie_pin[i]; i++) {
+									if (isdigit((unsigned char)aux_pixie_pin[i])) {
+										snprintf(pinstr, sizeof(pinstr), "%.8s", aux_pixie_pin + i);
+										run_pixiewps = 3;
+										break;
+									};
+								};
+								if (run_pixiewps == 3)
+									break;
+							};
 						};
-					};
+						fclose(fpixe);
+					} else
+						close(pipefd[0]);
+					waitpid(pid, NULL, 0);
 				};
 			};
-			pclose(fpixe);
+			if (run_pixiewps == 2)	/* pixiewps ran but did not recover the PIN */
+				run_pixiewps = 5;
 		};
-		if (run_pixiewps == 3) { 
+		if (run_pixiewps == 3) {	/* PIN found: verify it online to recover the key */
 			printf("[Pixie-Dust] PIN FOUND: %s\n", pinstr);
-			ctrlc--;
 			run_pixiewps = 4;
+		};
+		if (run_pixiewps == 5) {	/* offline attack failed; nothing more to try */
+			vprint("[!] Pixiewps did not recover the WPS PIN\n");
+			break;
 		};
 
 		while (!ctrlc && result != SUCCESS) {
@@ -1071,7 +1127,7 @@ restart:
 			break;
 		};
 
-		if (wps_registrar_add_pin(G->wdata->wps->registrar, NULL, pinstr, 8, 0)) {
+		if (wps_registrar_add_pin(G->wdata->wps->registrar, NULL, (uint8*)pinstr, 8, 0)) {
 			vprint("[X] Failed to add registrar pin '%s', exiting\n", pinstr);
 			return 6;
 		};
@@ -1187,11 +1243,6 @@ restart:
 	if (result == SUCCESS)
 		vprint("[*] Pin is '%s', key is '%s'\n", pinstr, G->wdata->cred.key);
 	if ((rf = fopen(G->runf, "a")) != NULL) {
-		if (op_gen_pin == 1)
-		{
-			return 0;
-		}
-
 		gettimeofday(&timer, NULL);
 		strftime(G->error, 256, "%Y-%m-%d %H:%M:%S", localtime(&timer.tv_sec));
 		fprintf(rf, "# session ended %s with signal %d\n%08d:%08d:%01d:%s:\n",
@@ -1211,6 +1262,9 @@ restart:
 	} else
 		result = -1;
 
-		return result;
+	if (__vf && __vf != stdout)	/* close the --outfile, if one was opened */
+		fclose(__vf);
+
+	return result;
 
 };

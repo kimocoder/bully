@@ -31,7 +31,7 @@ static inline void f_set(frame_t *fp, int id, int next, uint8 *data, int size, i
 
 frame_t *f_init()
 {
-	frame_t *fp = calloc(F_SIZE, F_MAX);
+	frame_t *fp = calloc(F_MAX, F_SIZE);
 	if (fp) {
 		f_set(fp, F_ALL,     0, NULL, 0, F_TAP);
 		f_set(fp, F_TAP, F_MAC, NULL, 0,     0);

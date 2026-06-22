@@ -23,6 +23,10 @@ static inline void set_timer(struct timeval *tv, int ms_from_now)
 	tv->tv_sec += ms_from_now/1000;
 	ms_from_now -= (ms_from_now/1000)*1000;
 	tv->tv_usec += ms_from_now*1000;
+	if (tv->tv_usec >= 1000000) {		/* carry overflow into seconds */
+		tv->tv_sec += tv->tv_usec / 1000000;
+		tv->tv_usec %= 1000000;
+	};
 };
 
 

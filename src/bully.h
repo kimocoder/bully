@@ -32,12 +32,12 @@ typedef struct wps_context	wctx_t;
 typedef struct wpabuf		wpab_t;
 
 char	*__vp;
-#define	__vs 1024
+#define	__vs 4096
 int	__vb = 3;
 FILE*	__vf;
-#define	vprint(...) { snprintf(__vp,__vs,__VA_ARGS__); if ((__vp[1]=='+'?3:__vp[1]=='!'?2:1)<=__vb) fputs(__vp,__vf); }
+#define	vprint(...) do { snprintf(__vp,__vs,__VA_ARGS__); if ((__vp[1]=='+'?3:__vp[1]=='!'?2:1)<=__vb) fputs(__vp,__vf); } while (0)
 
-char hx[16] = "0123456789abcdef";
+char hx[17] = "0123456789abcdef";
 #define HEXSZ 2049
 char _xbuf[HEXSZ];
 char *hex(void *p, int len);
@@ -128,7 +128,7 @@ struct {
 };
 
 struct global {
-	uint8	*ifname;
+	char	*ifname;
 	char	*essid;
 	char	*ssids;
 	uint8	bssid[6];
@@ -199,7 +199,6 @@ struct global {
 	wpsd_t	*wdata;
 	int16	*pin1;
 	int16	*pin2;
-	char    pixie;
 
 };
 
@@ -216,7 +215,7 @@ struct global {
 char usage[] =
 
 "\n"
-"  bully v1.4\n"
+"  bully v2.0\n"
 "  the fork that actually works!\n"
 "  maintained by kimocoder - https://twitter.com/kimocoder\n"
 "\n"
@@ -252,7 +251,6 @@ char usage[] =
 "  Advanced arguments:\n"
 "\n"
 "      -d, --pixiewps         : Attempt to use pixiewps               [No]\n"
-/*"      -g, --genpin N         : Pin Generator [1] D-Link [2] Belkin    [0]\n"*/
 "      -a, --acktime N        : Deprecated/ignored                  [Auto]\n"
 "      -r, --retries N        : Resend packets N times when not acked  [2]\n"
 "      -m, --m13time N        : Deprecated/ignored                  [Auto]\n"

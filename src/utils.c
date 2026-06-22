@@ -37,10 +37,14 @@ char *hex(void *p, int len)
 int get_int(char *in, int *out)
 {
 	int i, o=0, len = strlen(in);
+	if (len == 0)
+		return 1;
 	for (i=0; i<len; i++) {
-		if ('0' <= *in && *in <= '9')
+		if ('0' <= *in && *in <= '9') {
+			if (o > (INT_MAX - (*in - '0')) / 10)
+				return 1;		/* would overflow a signed int */
 			o = o*10 + *in-'0';
-		else
+		} else
 			return 1;
 		in++;
 	};
@@ -70,11 +74,12 @@ int get_mac(char *in, uint8 *out)
 			in++;
 		};
 		*out++ = o;
-		if (len == 17)
+		if (len == 17) {
 			if (*in == ':' || *in == 0)
 				in++;
 			else
 				return 1;
+		}
 	}
 	return 0;
 };
@@ -82,7 +87,7 @@ int get_mac(char *in, uint8 *out)
 
 char *fmt_mac(char *out, uint8 *in)
 {
-	int	i, x=0;
+	int	i;
 	char	*buf = out;
 	for (i=0; i<6; i++, in++) {
 		*out++ = hx[(*in) >> 4];
@@ -125,7 +130,7 @@ char *init_chans(struct global *G)
 		if (get_int(in, &G->chans[i]))
 			return in;
 
-		for (k=0; k<NUM_CHAN; k++)
+		for (k=0; k<(int)NUM_CHAN; k++)
 			if (G->chans[i] == freqs[k].chan) {
 				G->freqs[i] = freqs[k].freq;
 				G->index[G->chans[i]] = i;
@@ -147,13 +152,13 @@ void init_pins(struct global *G)
 	int	i, j, t;
 	uint8	*f, *cp;
 
-	G->pin1 = calloc(sizeof(int16), 10000);
+	G->pin1 = calloc(10000, sizeof(int16));
 	if (!G->pin1) {
 	pin_err:
 		vprint("[X] Couldn't allocate memory for randomized pins\n");
 		exit(2);
 	};
-	G->pin2 = calloc(sizeof(int16), 10000);
+	G->pin2 = calloc(10000, sizeof(int16));
 	if (!G->pin2)
 		goto pin_err;
 
@@ -169,22 +174,16 @@ void init_pins(struct global *G)
 #endif
 
 		for (i=0; i<10000; i++)	G->pin1[i] = i;
-		for (i=0; i<10000; i++)
-			if (G->pin1[i] == i) {
-				while ((j = random() % 10000) == i);
-				t = G->pin1[j];
-				G->pin1[j] = G->pin1[i];
-				G->pin1[i] = t;
-			};
+		for (i=9999; i>0; i--) {		/* unbiased Fisher-Yates shuffle */
+			j = random() % (i+1);
+			t = G->pin1[j]; G->pin1[j] = G->pin1[i]; G->pin1[i] = t;
+		};
 
 		for (i=0; i<10000; i++)	G->pin2[i] = i;
-		for (i=0; i<10000; i++)
-			if (G->pin2[i] == i) {
-				while ((j = random() % 10000) == i);
-				t = G->pin2[j];
-				G->pin2[j] = G->pin2[i];
-				G->pin2[i] = t;
-			};
+		for (i=9999; i>0; i--) {
+			j = random() % (i+1);
+			t = G->pin2[j]; G->pin2[j] = G->pin2[i]; G->pin2[i] = t;
+		};
 
 #ifdef HAVE_LUA
 			if (G->luaf && G->luavm) {
@@ -209,6 +208,11 @@ void init_pins(struct global *G)
 					lua_pop(G->luavm, 1);
 					numvalid++;
 				};
+
+				/* Injection below writes pin1[numvalid-1] and pin2[1000+numvalid-1];
+				   keep both within the 10000-entry tables. */
+				if (numvalid > 9000)
+					numvalid = 9000;
 
 				vprint("[!] List of generated pins '");
 				for (i = numvalid; i--; ) {
@@ -239,12 +243,17 @@ void init_pins(struct global *G)
 			};
 #endif
 
-		if ((f = calloc(sizeof(uint8), 1000)) == 0)
+		if ((f = calloc(1000, sizeof(uint8))) == 0)
 			goto pin_err;
 
-		for (i=0, j=1000; i<1000; i++) {
-			while (f[G->pin2[j]/10])
-				j++;
+		/* Move into pin2[0..999] one value per distinct "tens" bucket. Scan the
+		   whole remaining region [i..9999] each time (a forward-only cursor can
+		   miss values behind it and run past the end of the array). */
+		for (i=0; i<1000; i++) {
+			for (j=i; j<10000 && f[G->pin2[j]/10]; j++)
+				;
+			if (j >= 10000)		/* no free bucket left (shouldn't happen) */
+				break;
 			f[G->pin2[j]/10] = 1;
 			t = G->pin2[j];
 			G->pin2[j] = G->pin2[i];
@@ -297,7 +306,7 @@ void init_pins(struct global *G)
 int get_start(struct global *G)
 {
 	FILE	*rf;
-	int	index, pin, broken;
+	int	index = 0, pin = 0, broken = 0;
 	int	pin2max = (G->broken ? 10000 : 1000);
 	int	pin2div = (G->broken ? 1 : 10);
 	char	*line, *last = "00000000:00000000:0::\n";
@@ -309,19 +318,16 @@ int get_start(struct global *G)
 	strcat(oldf, ".run");
 	
 
-	if ((rf = fopen(oldf, "r")) != NULL)
+	if ((rf = fopen(oldf, "r")) != NULL) {
+		fclose(rf);
 		rename(oldf, G->runf);
+	};
 	free(oldf);
 
 	if ((rf = fopen(G->runf, "r")) == NULL) {
-		
 		if ((rf = fopen(G->runf, "w")) != NULL) {
-			if (!(op_gen_pin == 0))
-			{
-
-				fprintf(rf, "# DO NOT MODIFY CONTENTS OF THIS FILE\n# '%s' (%s)\n", G->essid, G->ssids);	
-				fclose(rf);
-			};
+			fprintf(rf, "# DO NOT MODIFY CONTENTS OF THIS FILE\n# '%s' (%s)\n", G->essid, G->ssids);
+			fclose(rf);
 		};
 		return 0;
 	};
@@ -330,10 +336,11 @@ int get_start(struct global *G)
 
 	while ((line = fgets(G->error, 256, rf)) != NULL)
 		last = line;
+	fclose(rf);
 
 	if ((sscanf(last, "%8d:%8d:%1d:", &index, &pin, &broken)) != 3) {
-		vprint("[X] Session save file appears corrupted, exiting\n");
-		//exit(8);
+		vprint("[X] Session save file appears corrupted, starting from the beginning\n");
+		return 0;
 	};
 
 	if (G->broken) {

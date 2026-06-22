@@ -20,20 +20,52 @@
 #include <string.h>
 
 #include "pdust.h"
+#include "pixie.h"
+
+/* Single definition of the shared pixiewps / pin-generation state that
+   pixie.h declares (extern). Kept here, in an always-compiled translation
+   unit, so there is exactly one definition regardless of build model. */
+char pixie_pke[1000];
+char pixie_pkr[1000];
+char pixie_enonce[100];
+char pixie_rnonce[100];
+char pixie_authkey[100];
+char pixie_ehash1[100];
+char pixie_ehash2[100];
+char p_iface[20];
+char p_bssid[256];
+int run_pixiewps;
+int debug_level;
+
+/* Single-pass bin -> "aa:bb:cc" hex used by the pixiewps data collectors,
+   replacing the per-byte sprintf()+strcat() (O(n^2)) builders. */
+void pixie_hexcolon(char *dst, const unsigned char *src, unsigned int n)
+{
+	static const char hex[] = "0123456789abcdef";
+	unsigned int i;
+	char *p = dst;
+	for (i = 0; i < n; i++) {
+		if (i)
+			*p++ = ':';
+		*p++ = hex[src[i] >> 4];
+		*p++ = hex[src[i] & 0x0f];
+	}
+	*p = '\0';
+}
 
 char OUI_NULL[OUI_STR_LEN] = "-";
 vendor_t vendor_list[] = {
-	{"\x00\x03\x7f", "AtherosC", PWPS_NONE       }, /* Atheros Communications */
-	{"\x00\x10\x18", "Broadcom", PWPS_ECOS_SIMPLE}, /* Broadcom */
-	{"\x00\x50\x43", "MarvellS", PWPS_NONE       }, /* MARVELL SEMICONDUCTOR, INC */
-	{"\x00\x0c\x43", "RalinkTe", PWPS_RT         }, /* Ralink Technology, Corp. */
-	{"\x00\xe0\x4c", "RealtekS", PWPS_RTL819x    }  /* REALTEK SEMICONDUCTOR CORP. */
+	{{0x00,0x03,0x7f}, "AtherosC", PWPS_NONE       }, /* Atheros Communications */
+	{{0x00,0x10,0x18}, "Broadcom", PWPS_ECOS_SIMPLE}, /* Broadcom */
+	{{0x00,0x50,0x43}, "MarvellS", PWPS_NONE       }, /* MARVELL SEMICONDUCTOR, INC */
+	{{0x00,0x0c,0x43}, "RalinkTe", PWPS_RT         }, /* Ralink Technology, Corp. */
+	{{0x00,0xe0,0x4c}, "RealtekS", PWPS_RTL819x    }  /* REALTEK SEMICONDUCTOR CORP. */
 };
 #define VENDOR_LIST_SIZE (sizeof(vendor_list) / sizeof(vendor_list[0]))
 
 char *get_vendor(uint8_t *oui)
 {
-	int i;
+	unsigned int i;
 	for (i = 0; i < VENDOR_LIST_SIZE; i++) {
 		if (!memcmp(vendor_list[i].oui, oui, 3))
 			return vendor_list[i].name;

@@ -546,9 +546,11 @@ http://www.devttys0.com/2014/10/reversing-d-links-wps-pin-algorithm/
 int pingen_dlink(char *mac, int add)
 {
     int nic=0, pin=0;
-    char buff[10];
+    char buff[7];
 
-    nic = hexToInt(strncpy(buff, mac+6, sizeof(buff)));
+    strncpy(buff, mac+6, sizeof(buff)-1);
+    buff[sizeof(buff)-1] = '\0';
+    nic = hexToInt(buff);
     nic = nic + add;
 
     pin = nic ^ 0x55AA55;
@@ -571,7 +573,7 @@ int pingen_dlink(char *mac, int add)
 //Zhaochunsheng algorithm/
 int pingen_zhaochunsheng(char *mac, int add)
 {
-    int default_pin=0, pin=0, i=0, pin_len = 9;
+    int default_pin=0, i=0;
     //char *bssid = mac2str(get_bssid(), ':');
     char *bssid_copy = (char *)malloc(strlen(mac) + 1);
     char *bssid_parts, temp[7] = { 0 };
@@ -592,11 +594,9 @@ int pingen_zhaochunsheng(char *mac, int add)
 
     temp[6] = '\0';
     sscanf(temp, "%x", &default_pin);
-    default_pin = default_pin % 10000000;
+    default_pin = (default_pin + add) % 10000000;
 
-	//snprintf(pin, pin_len, "%08d", (default_pin * 10) + wps_checksum(default_pin));
-
-    return pin;
+    return (default_pin * 10) + wps_checksum(default_pin);
 }
 
 //mac to decimal by kib0rg
@@ -611,5 +611,5 @@ int pingen_zyxel(char *mac, int add)
 
     pin = (hexToInt(mac_address) + add) % 10000000;
 
-    //return (pin * 10) + wps_pin_checksum(pin);
+    return (pin * 10) + wps_checksum(pin);
 }

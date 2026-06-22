@@ -26,7 +26,17 @@
 int parse_packet(frame_t *fp, uint8 *pack, int len, int has_rth, int has_fcs)
 {
 	rth_t	*rth = (rth_t*)pack;
-	int	rthl = (has_rth ? le16toh(rth->it_len) : 0);
+	int	rthl = 0;
+	if (has_rth) {
+		if (len < (int)RTH_SIZE)
+			return EAPFAIL;			/* truncated radiotap header */
+		rthl = le16toh(rth->it_len);
+		if (rthl < (int)RTH_SIZE || rthl > len)
+			return EAPFAIL;			/* bogus radiotap length */
+	};
+
+	if (len - rthl < 1)
+		return EAPFAIL;				/* no room for a MAC header */
 
 	mac_t	*mac = (mac_t*)(pack+rthl);
 	int	macl = MAC_SIZE_NORM;
@@ -42,10 +52,14 @@ int parse_packet(frame_t *fp, uint8 *pack, int len, int has_rth, int has_fcs)
 				macl += QOS_SIZE;
 
 	int	fcsl = (has_fcs ? 4 : 0);
+
+	if (len - rthl < macl + fcsl)
+		return EAPFAIL;				/* frame too short for MAC + FCS */
+
 	fcs_t	*fcs = (fcs_t*)(pack+len-fcsl);
 
 	uint8	*pay = ((uint8*)mac)+macl;
-	int	plen = ((uint8*)fcs)-pay;
+	int	plen = ((uint8*)fcs)-pay;	/* now guaranteed >= 0 */
 
 	fp[F_ALL].data = uc(pack);	fp[F_ALL].size = len;
 	fp[F_TAP].data = uc(rth);	fp[F_TAP].size = rthl;
@@ -54,25 +68,25 @@ int parse_packet(frame_t *fp, uint8 *pack, int len, int has_rth, int has_fcs)
 	fp[F_FCS].data = uc(fcs);	fp[F_FCS].size = fcsl;
 
 	if (mac->type == MAC_TYPE_DATA
-			&& LLC_SIZE <= plen
+			&& (int)LLC_SIZE <= plen
 			&& be16toh(((llc_t*)pay)->type) == LLC_TYPE_AUTH)
 	{
 		fp[F_PAY].list = &fp[F_LLC];
 
 		llc_t *llc = (llc_t*)pay;
-		int llcl = LLC_SIZE;
+		int llcl = LLC_SIZE;			/* LLC_SIZE <= plen checked above */
 		pay += llcl; plen -= llcl;
 
 		d1x_t *d1x = (d1x_t*)pay;
-		int d1xl = D1X_SIZE;
+		int d1xl = (plen >= (int)D1X_SIZE ? D1X_SIZE : 0);
 		pay += d1xl; plen -= d1xl;
 
 		eap_t *eap = (eap_t*)pay;
-		int eapl = (d1xl && d1x->type == D1X_TYPE_EAP ? EAP_SIZE : 0);
+		int eapl = (d1xl && plen >= (int)EAP_SIZE && d1x->type == D1X_TYPE_EAP ? EAP_SIZE : 0);
 		pay += eapl; plen -= eapl;
 
 		wfa_t *wfa = (wfa_t*)pay;
-		int wfal = (eapl && eap->type == EAP_TYPE_EXPAND ? WFA_SIZE : 0);
+		int wfal = (eapl && plen >= (int)WFA_SIZE && eap->type == EAP_TYPE_EXPAND ? WFA_SIZE : 0);
 		if (wfal)
 			if (memcmp(wfa->vid,WFA_VENDOR,sizeof(wfa->vid)) != 0
 					|| be32toh(wfa->type) != WFA_SIMPLECONF)
@@ -81,6 +95,8 @@ int parse_packet(frame_t *fp, uint8 *pack, int len, int has_rth, int has_fcs)
 
 		vtag_t *msg = (vtag_t*)pay;
 		int msgl = (wfal ? be16toh(eap->len) - (eapl + wfal) : 0);
+		if (msgl < 0)		msgl = 0;	/* guard against a bogus EAP length */
+		if (msgl > plen)	msgl = plen;	/* never exceed captured payload */
 		pay += msgl; plen -= msgl;
 
 		fp[F_LLC].data = uc(llc);	fp[F_LLC].size = llcl;
@@ -103,6 +119,10 @@ uint8 *build_packet(uint8 *pack, int plen, uint8 *msg, int mlen)
 {
 	int len = plen + mlen;
 	uint8 *buf = malloc(len);
+	if (!buf) {
+		vprint("[X] Memory allocation error in build_packet\n");
+		exit(2);
+	};
 	memcpy(buf,pack,plen);
 	memcpy(&buf[len-4],&buf[plen-4],4);
 	memcpy(&buf[plen-4],msg,mlen);
@@ -110,23 +130,74 @@ uint8 *build_packet(uint8 *pack, int plen, uint8 *msg, int mlen)
 };
 
 
-tag_t *find_tag(void *tagp, int tagl, uint8 id, int len, uint8* vid, int vlen)
+/* --- Bounds-checked TLV iterator -------------------------------------------
+   802.11 information elements and WPS attributes are both length-prefixed TLVs
+   that differ only in header size and the encoding of the length field. Every
+   walk below goes through this one iterator, so the "does a full header+body
+   fit in the remaining buffer?" check lives in exactly one place and can't
+   drift out of sync between the walkers. */
+
+typedef int (*ie_lenfn)(const void *elem);	/* read body length from a header */
+
+struct ie_iter {
+	uint8	*p;		/* current element */
+	int	remain;		/* bytes left from p to the end of the buffer */
+	int	hdr;		/* fixed TLV header size */
+	ie_lenfn lenfn;		/* body-length reader for this TLV format */
+};
+
+/* Return the current element only if a complete header+body fits, else NULL. */
+static void *ie_cur(struct ie_iter *it)
 {
-	tag_t *tag = (tag_t*)tagp;
-	while (0<tagl) {
-		if (id && tag->id!=id)
-			goto next_tag;
-		if (len && tag->len!=len)
-			goto next_tag;
-		if (id!=TAG_VEND || vid==NULL || vlen==0)
+	int body;
+	if (it->remain < it->hdr)
+		return NULL;
+	body = it->lenfn(it->p);
+	if (body < 0 || body > it->remain - it->hdr)
+		return NULL;
+	return it->p;
+}
+
+static void *ie_first(struct ie_iter *it, void *buf, int len, int hdr, ie_lenfn lenfn)
+{
+	it->p = (uint8*)buf;
+	it->remain = len;
+	it->hdr = hdr;
+	it->lenfn = lenfn;
+	return ie_cur(it);
+}
+
+/* Advance past the (already-validated) current element to the next one. */
+static void *ie_next(struct ie_iter *it)
+{
+	int adv = it->hdr + it->lenfn(it->p);
+	it->p += adv;
+	it->remain -= adv;
+	return ie_cur(it);
+}
+
+/* True if the buffer ended in the middle of an element rather than cleanly. */
+static int ie_truncated(const struct ie_iter *it) { return it->remain > 0; }
+
+static int tag_bodylen(const void *e)  { return ((const tag_t*)e)->len; }
+static int vtag_bodylen(const void *e) { return be16toh(((const vtag_t*)e)->len); }
+
+
+tag_t *find_tag(void *tagp, int tagl, uint8 id, int len, const void* vid, int vlen)
+{
+	struct ie_iter it;
+	tag_t *tag;
+	for (tag = ie_first(&it, tagp, tagl, TAG_SIZE, tag_bodylen); tag; tag = ie_next(&it)) {
+		if (id && tag->id != id)
+			continue;
+		if (len && tag->len != len)
+			continue;
+		if (id != TAG_VEND || vid == NULL || vlen == 0)
 			return tag;
-		if (memcmp(vid,tag->data,vlen)==0)
+		if (vlen <= tag->len && memcmp(vid, tag->data, vlen) == 0)
 			return tag;
-	next_tag:
-		tagl -= tag->len + TAG_SIZE;
-		tag = (tag_t*)((uint8*)tag + tag->len + TAG_SIZE);
 	};
-	if (tagl)
+	if (ie_truncated(&it))
 		vprint("[!] Information element tag(s) extend past end of frame\n");
 	return NULL;
 };
@@ -137,56 +208,40 @@ int get_oui_vendor(void *tagp, int tagl, uint8 oui[3])
 	#define MAX_OUI_TAG_LEN	9
 	#define SINGLETON_LEN	10
 
-	uint8 singleton[3] = "\x00\x03\x7f";
+	uint8 singleton[3] = { 0x00, 0x03, 0x7f };
+	struct ie_iter it;
+	tag_t *tag;
 
-	tag_t *tag = (tag_t*)tagp;
-	while (0 < tagl) {
+	for (tag = ie_first(&it, tagp, tagl, TAG_SIZE, tag_bodylen); tag; tag = ie_next(&it)) {
 		if (tag->id != TAG_VEND)
-			goto next_tag;
+			continue;
 		if (tag->len >= MIN_OUI_TAG_LEN && tag->len <= MAX_OUI_TAG_LEN) {
-			if (tag->data[3] == 2 ||
-				tag->data[3] == 4 ||
-				tag->data[3] == 7 ||
-				tag->data[3] == 1 ||
-				tag->data[3] == 0 ||
-				tag->data[3] == 3) {
-
+			if (tag->data[3] == 0 || tag->data[3] == 1 || tag->data[3] == 2 ||
+			    tag->data[3] == 3 || tag->data[3] == 4 || tag->data[3] == 7) {
 				memcpy(oui, tag->data, 3);
 				return 1;
-			} else {
-				goto next_tag;
 			};
-		} else {
-			if (tag->len == SINGLETON_LEN && !memcmp(singleton, tag->data, 3)) {
-				memcpy(oui, tag->data, 3);
-				return 1;
-			} else {
-				goto next_tag;
-			};
+		} else if (tag->len == SINGLETON_LEN && !memcmp(singleton, tag->data, 3)) {
+			memcpy(oui, tag->data, 3);
+			return 1;
 		};
-
-next_tag:
-		tagl -= tag->len + TAG_SIZE;
-		tag = (tag_t*)((uint8*)tag + tag->len + TAG_SIZE);
 	};
-	if (tagl)
+	if (ie_truncated(&it))
 		vprint("[!] Information element tag(s) extend past end of frame\n");
 	return 0;
 };
 
-vtag_t *find_vtag(void *vtagp, int vtagl, uint8* vid, int vlen)
+vtag_t *find_vtag(void *vtagp, int vtagl, const void* vid, int vlen)
 {
-	vtag_t *vtag = (vtag_t*)vtagp;
-	while (0<vtagl) {
-		if (vid && memcmp(vid,&vtag->id,2) != 0)
-			goto next_vtag;
-		if (!vlen || be16toh(vtag->len) == vlen);
+	struct ie_iter it;
+	vtag_t *vtag;
+	for (vtag = ie_first(&it, vtagp, vtagl, VTAG_SIZE, vtag_bodylen); vtag; vtag = ie_next(&it)) {
+		if (vid && memcmp(vid, &vtag->id, 2) != 0)
+			continue;
+		if (!vlen || be16toh(vtag->len) == vlen)
 			return vtag;
-	next_vtag:
-		vtagl -= be16toh(vtag->len) + VTAG_SIZE;
-		vtag = (vtag_t*)((uint8*)vtag + be16toh(vtag->len) + VTAG_SIZE);
 	};
-	if (vtagl)
+	if (ie_truncated(&it))
 		vprint("[!] Information element tag(s) extend past end of frame\n");
 	return NULL;
 };
@@ -425,7 +480,38 @@ uint8 *build_ietags(tag_t *tags[], int *tagl)
 };
 
 
-int next_packet(struct global *G, uint8 type, uint8 subtype, uint8 *dest, uint8 *src,
+/* Install a coarse kernel BPF filter so the kernel drops frames that don't
+   involve our station or the target BSSID before they reach userspace. The
+   precise per-call matching in next_packet() is unchanged; this only reduces
+   the volume on busy channels. Best-effort: on any failure we warn and keep
+   capturing unfiltered so the attack still works. */
+void set_bpf_filter(struct global *G)
+{
+	char filt[128];
+	struct bpf_program bpf;
+
+	if (!G->pfd || !G->smacs || !G->ssids)
+		return;
+
+	snprintf(filt, sizeof(filt), "wlan host %s or wlan host %s", G->smacs, G->ssids);
+
+	if (pcap_compile(G->pfd, &bpf, filt, 1, PCAP_NETMASK_UNKNOWN) < 0) {
+		vprint("[!] Unable to compile BPF filter, capturing unfiltered (%s)\n",
+				pcap_geterr(G->pfd));
+		return;
+	};
+	if (pcap_setfilter(G->pfd, &bpf) < 0) {
+		vprint("[!] Unable to install BPF filter, capturing unfiltered (%s)\n",
+				pcap_geterr(G->pfd));
+		pcap_freecode(&bpf);
+		return;
+	};
+	pcap_freecode(&bpf);
+	vprint("[+] Installed kernel BPF capture filter (%s)\n", filt);
+};
+
+
+int next_packet(struct global *G, uint8 type, uint8 subtype, const void *dest, const void *src,
 			int pkt, int parse)
 {
 	struct timeval timeout, begin;
@@ -440,10 +526,7 @@ int next_packet(struct global *G, uint8 type, uint8 subtype, uint8 *dest, uint8 
 	else if (G->suppress)
 		set_timer(&timeout, times[pkt].def);
 	else
-		if (G->suppress)
-			set_timer(&timeout, times[pkt].def);
-		else
-			set_timer(&timeout, times[pkt].avg + (times[pkt].avg>>3) + 5);
+		set_timer(&timeout, times[pkt].avg + (times[pkt].avg>>3) + 5);
 
 	while (!ctrlc || START_EAPOL < G->state) {
 
@@ -461,10 +544,16 @@ int next_packet(struct global *G, uint8 type, uint8 subtype, uint8 *dest, uint8 
 		rth_t	*rth = (rth_t*)pack;
 		int	rthl = (G->has_rth ? le16toh(rth->it_len) : 0);
 
+		/* A bogus radiotap length must not push the MAC header past the
+		   captured frame (adr1 ends at +10, adr2 at +16). */
+		if (rthl < 0 || rthl + MAC_SIZE_ACK > len)
+			continue;
+
 		mac_t	*mac = (mac_t*)(pack+rthl);
 		if (memcmp(dest,NULL_MAC,6) != 0 && memcmp(mac->adr1.addr,dest,6) != 0)
 			continue;
-		if (memcmp(src, NULL_MAC,6) != 0 && memcmp(mac->adr2.addr,src ,6) != 0)
+		if (memcmp(src, NULL_MAC,6) != 0
+				&& (rthl + MAC_SIZE_NORM > len || memcmp(mac->adr2.addr,src,6) != 0))
 			continue;
 
 		if (mac->type != type)
@@ -672,29 +761,26 @@ reassoc:
 int wpstran(struct global *G)
 {
 	enum wsc_op_code opcode;
-	enum wps_state state;
+	int	state;
 
 	int	result, quit = 0;
-	llc_t	*llc;
 	eap_t	*eap;
 	wfa_t	*wfa;
 	wpab_t	*msg;
 	uint8	*pack;
 	vtag_t	*tag;
 
-restart:
 	G->state = START_EAPOL;
 	result = send_packet(G, eapols, sizeof(eapols)-1, 0);
 	if (result != SUCCESS)
 		return result;
 
-read_id:
 	G->state++;
 	result = next_packet(G, MAC_TYPE_DATA, MAC_ST_DATA, G->hwmac, G->bssid, PKT_EID, TRUE);
 	if (result != SUCCESS)
 		return result;
 
-	if (!G->inp[F_PAY].list || G->inp[F_EAP].size<EAP_SIZE) {
+	if (!G->inp[F_PAY].list || G->inp[F_EAP].size<(int)EAP_SIZE) {
 	eap_err:
 		vprint("[!] Unexpected packet received when waiting for EAP Req Id\n");
 		vprint("[!] >%s<\n", hex(G->inp[F_ALL].data, G->inp[F_ALL].size));
@@ -706,7 +792,6 @@ read_id:
 		goto eap_err;
 	eap_id[G->eapidx] = eapolf[G->eapidx] = eap->id;
 
-send_id:
 	G->state++;
 	result = send_packet(G, eap_id, sizeof(eap_id)-1, 0);
 	if (result != SUCCESS)
@@ -762,11 +847,12 @@ read_mx:
 	} else {
 		tag = find_vtag(G->inp[F_MSG].data,G->inp[F_MSG].size,WPS_MSG_TYPE,1);
 		if (tag) {
-			if (G->detect && state == RECV_M3)
+			if (G->detect && state == RECV_M3) {
 				if (tag->data[0] == MSG_NACK || tag->data[0] == MSG_M2D)
 					G->dcount+= 1;
 				else
 					G->dcount = 0;
+			};
 
 			if (tag->data[0] == MSG_NACK) {
 				quit = (state==RECV_M5 ? KEY1NAK : state==RECV_M7 ? KEY2NAK : WPSFAIL);

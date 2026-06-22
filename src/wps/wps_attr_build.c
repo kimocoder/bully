@@ -61,18 +61,7 @@ int wps_build_public_key(struct wps_data *wps, struct wpabuf *msg)
 			unsigned char *v;
 		        v = wpabuf_mhead_u8(pubkey);
 	
-			memset(pixie_pkr,0,sizeof(pixie_pkr));
-			char *get_pkr;
-			get_pkr=malloc( 1000 * sizeof(char));
-			int pixiecnt = 0;
-	       		for (; pixiecnt < 192; pixiecnt++) {
-				sprintf(get_pkr, "%02x",  v[pixiecnt]);
-				strcat(pixie_pkr, get_pkr);
-				if (pixiecnt != 191) {
-					strcat(pixie_pkr,":");
-				}
-			}
-			free(get_pkr);
+			pixie_hexcolon(pixie_pkr, v, 192);
 			if ( debug_level <= 3 )
 			{
 				printf("[P] PKR received.\n");

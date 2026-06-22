@@ -21,6 +21,7 @@
 #include "pingen.h"
 
 /* For debugging when developing */
+static void stack_dump(lua_State *L) __attribute__((unused));
 static void stack_dump(lua_State *L)
 {
 	int i;
@@ -57,6 +58,7 @@ static int l_wps_checksum(lua_State *L)
 			return 1; /* Number of results returned */
 		};
 	};
+	return 0; /* No results pushed (invalid arguments) */
 };
 
 /* Lua wrapper around 'wps_pin_valid' */
@@ -70,6 +72,7 @@ static int l_wps_valid(lua_State *L)
 			return 1; /* Number of results returned */
 		};
 	};
+	return 0; /* No results pushed (invalid arguments) */
 };
 
 /* Exposed functions */
@@ -205,7 +208,6 @@ static int l_gen_belkin(lua_State *L)
 			unsigned int len2 = lua_rawlen(L, -2);
 			int idx_bssid;
 			int idx_serial;
-			const char *bssid;
 			const char *serial;
 			unsigned int bssidlen;
 			if ((len2 == 6 || len2 == 12) && (len1 != 6 && len1 != 12)) {
