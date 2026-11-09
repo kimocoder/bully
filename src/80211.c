@@ -493,7 +493,12 @@ void set_bpf_filter(struct global *G)
 	if (!G->pfd || !G->smacs || !G->ssids)
 		return;
 
-	snprintf(filt, sizeof(filt), "wlan host %s or wlan host %s", G->smacs, G->ssids);
+	/* "wlan host" excludes ACK control frames. send_packet() also needs
+	   the ACKs addressed to our station, whose only address is addr1. */
+	snprintf(filt, sizeof(filt),
+			"wlan host %s or wlan host %s or "
+			"(type ctl subtype ack and wlan addr1 %s)",
+			G->smacs, G->ssids, G->smacs);
 
 	if (pcap_compile(G->pfd, &bpf, filt, 1, PCAP_NETMASK_UNKNOWN) < 0) {
 		vprint("[!] Unable to compile BPF filter, capturing unfiltered (%s)\n",
